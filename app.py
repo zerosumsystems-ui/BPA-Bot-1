@@ -35,6 +35,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 TRAINING_CSV = DATA_DIR / "training_data.csv"
 ENCYCLOPEDIA_PATH = DATA_DIR / "brooks_encyclopedia_learnings.md"
+DO_NOT_TRADE_JSON = DATA_DIR / "do_not_trade.json"
 
 CSV_COLUMNS = [
     "timestamp", "ticker",
@@ -172,7 +173,24 @@ def get_sp500_tickers() -> list[str]:
     tables = pd.read_html(io.StringIO(resp.text))
     df = tables[0]
     tickers = df["Symbol"].str.replace(".", "-", regex=False).tolist()
-    return tickers
+    dnt = load_do_not_trade()
+    return [t for t in tickers if t not in dnt]
+
+def load_do_not_trade() -> set[str]:
+    """Load the list of tickers to exclude from training."""
+    if DO_NOT_TRADE_JSON.exists():
+        try:
+            return set(json.loads(DO_NOT_TRADE_JSON.read_text()))
+        except Exception:
+            pass
+    return set()
+
+def add_to_do_not_trade(ticker: str):
+    """Add a ticker to the exclusion list and force a cache reset."""
+    dnt = load_do_not_trade()
+    dnt.add(ticker)
+    DO_NOT_TRADE_JSON.write_text(json.dumps(list(dnt)))
+    get_sp500_tickers.clear()
 
 # ─────────────────────────── DATA FETCHING ───────────────────────────────────
 
@@ -679,13 +697,15 @@ def render_training_lab():
     with st.form("override_form", clear_on_submit=True):
         st.plotly_chart(fig, use_container_width=True, key="main_chart")
         
-        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
         with btn_col1:
             approve = st.form_submit_button("✅ Approve All", use_container_width=True)
         with btn_col2:
             submit = st.form_submit_button("📝 Submit Corrections", use_container_width=True)
         with btn_col3:
             skip = st.form_submit_button("⏭️ Skip Chart", use_container_width=True)
+        with btn_col4:
+            ban = st.form_submit_button("🚫 Not Liquid", use_container_width=True)
             
         st.markdown("---")
 
@@ -809,7 +829,10 @@ def render_training_lab():
             st.session_state.pop(key, None)
         st.rerun()
 
-    if skip:
+    if skip or ban:
+        if ban:
+            add_to_do_not_trade(ticker)
+            st.toast(f"{ticker} has been permanently excluded from training!", icon="🚫")
         for key in ["ticker", "chart_df", "chart_fig", "bot_analysis"]:
             st.session_state.pop(key, None)
         st.rerun()
