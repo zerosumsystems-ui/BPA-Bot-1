@@ -741,125 +741,124 @@ def render_training_lab():
     if "prefetch_future" not in st.session_state and "prefetch_ready" not in st.session_state:
         start_prefetch()
 
-    with st.form("override_form", clear_on_submit=True):
-        st.plotly_chart(fig, use_container_width=True, key="main_chart")
+    st.plotly_chart(fig, use_container_width=True, key="main_chart")
+    
+    btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
+    with btn_col1:
+        approve = st.button("✅ Approve All", use_container_width=True)
+    with btn_col2:
+        submit = st.button("📝 Submit Corrections", use_container_width=True)
+    with btn_col3:
+        skip = st.button("⏭️ Skip Chart", use_container_width=True)
+    with btn_col4:
+        ban = st.button("🚫 Not Liquid", use_container_width=True)
         
-        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
-        with btn_col1:
-            approve = st.form_submit_button("✅ Approve All", use_container_width=True)
-        with btn_col2:
-            submit = st.form_submit_button("📝 Submit Corrections", use_container_width=True)
-        with btn_col3:
-            skip = st.form_submit_button("⏭️ Skip Chart", use_container_width=True)
-        with btn_col4:
-            ban = st.form_submit_button("🚫 Not Liquid", use_container_width=True)
+    st.markdown("---")
+
+    col_bot, col_form = st.columns([1, 1], gap="large")
+
+    # ── Bot Analysis Column ──
+    with col_bot:
+        st.subheader("💬 Ask the Bot")
+        
+        # Initialize chat history if missing
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []
+            
+        # Render existing chat
+        chat_container = st.container(height=300)
+        with chat_container:
+            for msg in st.session_state["chat_history"]:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    
+        # Accept user input
+        user_question = st.chat_input("Ask why it chose a specific signal...")
+        if user_question:
+            # Add user msg to state and render
+            st.session_state["chat_history"].append({"role": "user", "content": user_question})
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(user_question)
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        bot_response = ask_bot_question(user_question, fig, analysis)
+                    st.markdown(bot_response)
+            # Save assistant response to state
+            st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
             
         st.markdown("---")
-
-        col_bot, col_form = st.columns([1, 1], gap="large")
-
-        # ── Bot Analysis Column ──
-        with col_bot:
-            st.subheader("💬 Ask the Bot")
+        st.subheader("🤖 Bot's JSON Analysis")
+        if "_error" in analysis:
+            st.warning(analysis["_error"])
+        with st.expander("Raw API JSON Output", expanded=False):
+            st.json(analysis)
+        
+        # Initialize chat history if missing
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []
             
-            # Initialize chat history if missing
-            if "chat_history" not in st.session_state:
-                st.session_state["chat_history"] = []
-                
-            # Render existing chat
-            chat_container = st.container(height=300)
+        # Render existing chat
+        chat_container = st.container(height=300)
+        with chat_container:
+            for msg in st.session_state["chat_history"]:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    
+        # Accept user input
+        user_question = st.chat_input("Ask why it chose a specific signal...")
+        if user_question:
+            # Add user msg to state and render
+            st.session_state["chat_history"].append({"role": "user", "content": user_question})
             with chat_container:
-                for msg in st.session_state["chat_history"]:
-                    with st.chat_message(msg["role"]):
-                        st.markdown(msg["content"])
-                        
-            # Accept user input
-            user_question = st.chat_input("Ask why it chose a specific signal...")
-            if user_question:
-                # Add user msg to state and render
-                st.session_state["chat_history"].append({"role": "user", "content": user_question})
-                with chat_container:
-                    with st.chat_message("user"):
-                        st.markdown(user_question)
-                    with st.chat_message("assistant"):
-                        with st.spinner("Thinking..."):
-                            bot_response = ask_bot_question(user_question, fig, analysis)
-                        st.markdown(bot_response)
-                # Save assistant response to state
-                st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
-                
-            st.markdown("---")
-            st.subheader("🤖 Bot's JSON Analysis")
-            if "_error" in analysis:
-                st.warning(analysis["_error"])
-            with st.expander("Raw API JSON Output", expanded=False):
-                st.json(analysis)
+                with st.chat_message("user"):
+                    st.markdown(user_question)
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        bot_response = ask_bot_question(user_question, fig, analysis)
+                    st.markdown(bot_response)
+            # Save assistant response to state
+            st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
+
+    # ── Teacher Override Column ──
+    with col_form:
+        st.subheader("🎓 Teacher's Override")
+        day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS, key=f"day_type_{ticker}")
+        market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS, key=f"market_cycle_{ticker}")
+        st.markdown("**Top 5 Setups (Name, Bar #, Price, Order Type):**")
+        override_setups = []
+        override_bars = []
+        override_prices = []
+        override_orders = []
+
+        bot_setups = analysis.get("setups", [])
+        for i in range(5):
+            obj = bot_setups[i] if i < len(bot_setups) else {}
+            if isinstance(obj, str): # Fallback if bot hallucinates structure
+                obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
             
-            # Initialize chat history if missing
-            if "chat_history" not in st.session_state:
-                st.session_state["chat_history"] = []
-                
-            # Render existing chat
-            chat_container = st.container(height=300)
-            with chat_container:
-                for msg in st.session_state["chat_history"]:
-                    with st.chat_message(msg["role"]):
-                        st.markdown(msg["content"])
-                        
-            # Accept user input
-            user_question = st.chat_input("Ask why it chose a specific signal...")
-            if user_question:
-                # Add user msg to state and render
-                st.session_state["chat_history"].append({"role": "user", "content": user_question})
-                with chat_container:
-                    with st.chat_message("user"):
-                        st.markdown(user_question)
-                    with st.chat_message("assistant"):
-                        with st.spinner("Thinking..."):
-                            bot_response = ask_bot_question(user_question, fig, analysis)
-                        st.markdown(bot_response)
-                # Save assistant response to state
-                st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
+            b_name = obj.get("setup_name", "N/A")
+            b_bar = obj.get("entry_bar", 0)
+            b_price = obj.get("entry_price", 0.0)
+            b_order = obj.get("order_type", "N/A")
 
-        # ── Teacher Override Column ──
-        with col_form:
-            st.subheader("🎓 Teacher's Override")
-            day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS)
-            market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS)
-            st.markdown("**Top 5 Setups (Name, Bar #, Price, Order Type):**")
-            override_setups = []
-            override_bars = []
-            override_prices = []
-            override_orders = []
+            st.markdown(f"**Setup {i+1}** *(Bot: {b_name} [{b_order}] @ Bar {b_bar}, ${b_price})*")
+            scol1, scol2, scol3, scol4 = st.columns([3, 1, 1, 2])
+            with scol1:
+                sel = st.selectbox("Name", SETUP_OPTIONS, key=f"setup_name_{i}_{ticker}")
+                override_setups.append(sel)
+            with scol2:
+                br = st.number_input("Bar #", value=int(b_bar) if b_bar else 0, step=1, key=f"setup_bar_{i}_{ticker}")
+                override_bars.append(br)
+            with scol3:
+                pr = st.number_input("Price", value=float(b_price) if b_price else 0.0, step=0.1, format="%.2f", key=f"setup_price_{i}_{ticker}")
+                override_prices.append(pr)
+            with scol4:
+                ort = st.selectbox("Order Type", ORDER_OPTIONS, key=f"setup_order_{i}_{ticker}")
+                override_orders.append(ort)
 
-            bot_setups = analysis.get("setups", [])
-            for i in range(5):
-                obj = bot_setups[i] if i < len(bot_setups) else {}
-                if isinstance(obj, str): # Fallback if bot hallucinates structure
-                    obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
-                
-                b_name = obj.get("setup_name", "N/A")
-                b_bar = obj.get("entry_bar", 0)
-                b_price = obj.get("entry_price", 0.0)
-                b_order = obj.get("order_type", "N/A")
-
-                st.markdown(f"**Setup {i+1}** *(Bot: {b_name} [{b_order}] @ Bar {b_bar}, ${b_price})*")
-                scol1, scol2, scol3, scol4 = st.columns([3, 1, 1, 2])
-                with scol1:
-                    sel = st.selectbox("Name", SETUP_OPTIONS, key=f"setup_name_{i}")
-                    override_setups.append(sel)
-                with scol2:
-                    br = st.number_input("Bar #", value=int(b_bar) if b_bar else 0, step=1, key=f"setup_bar_{i}")
-                    override_bars.append(br)
-                with scol3:
-                    pr = st.number_input("Price", value=float(b_price) if b_price else 0.0, step=0.1, format="%.2f", key=f"setup_price_{i}")
-                    override_prices.append(pr)
-                with scol4:
-                    ort = st.selectbox("Order Type", ORDER_OPTIONS, key=f"setup_order_{i}")
-                    override_orders.append(ort)
-
-            action = st.selectbox("Action", ACTION_OPTIONS)
-            notes = st.text_area("Teacher's Notes", placeholder="Why did you override?")
+        action = st.selectbox("Action", ACTION_OPTIONS, key=f"action_{ticker}")
+        notes = st.text_area("Teacher's Notes", placeholder="Why did you override?", key=f"notes_{ticker}")
 
     # ── Handle Buttons ──
     if approve or submit:
