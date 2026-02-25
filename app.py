@@ -708,18 +708,141 @@ def render_history():
             delete_row(int(row_idx))
             st.rerun()
 
+
+# ─────────────────────────── EXAMPLES TAB ────────────────────────────────────
+
+def render_examples():
+    """Browse training examples filtered by day type, market cycle, setup, or notes."""
+    df = load_training_csv()
+    if df.empty:
+        st.info("No training data yet. Start correcting charts in the Training Lab!")
+        return
+
+    st.markdown("#### Filter Your Training Examples")
+
+    # ── Filter Controls ──
+    fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+
+    with fcol1:
+        day_types = sorted(df["override_day_type"].dropna().unique().tolist())
+        sel_day = st.multiselect("Day Type", day_types, placeholder="All day types")
+
+    with fcol2:
+        cycles = sorted(df["override_market_cycle"].dropna().unique().tolist())
+        sel_cycle = st.multiselect("Market Cycle", cycles, placeholder="All cycles")
+
+    with fcol3:
+        # Gather all unique setup names across all 5 setup columns
+        setup_cols = [f"override_setup_{i}" for i in range(1, 6)]
+        all_setups = set()
+        for col in setup_cols:
+            if col in df.columns:
+                all_setups.update(df[col].dropna().unique().tolist())
+        all_setups.discard("")
+        all_setups.discard("N/A")
+        all_setups.discard("Error")
+        sel_setup = st.multiselect("Setup", sorted(all_setups), placeholder="All setups")
+
+    with fcol4:
+        search_text = st.text_input("Search Notes", placeholder="e.g. wedge, reversal...")
+
+    # ── Apply Filters ──
+    mask = pd.Series([True] * len(df), index=df.index)
+
+    if sel_day:
+        mask &= df["override_day_type"].isin(sel_day)
+
+    if sel_cycle:
+        mask &= df["override_market_cycle"].isin(sel_cycle)
+
+    if sel_setup:
+        setup_mask = pd.Series([False] * len(df), index=df.index)
+        for col in setup_cols:
+            if col in df.columns:
+                setup_mask |= df[col].isin(sel_setup)
+        mask &= setup_mask
+
+    if search_text.strip():
+        mask &= df["teacher_notes"].fillna("").str.contains(search_text.strip(), case=False, na=False)
+
+    filtered = df[mask].reset_index(drop=True)
+
+    # ── Summary ──
+    st.markdown(f"**Showing {len(filtered)} of {len(df)} examples**")
+    st.markdown("---")
+
+    if filtered.empty:
+        st.warning("No examples match your filters. Try broadening your search.")
+        return
+
+    # ── Display Results as Expanders ──
+    for idx, row in filtered.iterrows():
+        ticker = row.get("ticker", "?")
+        ts = row.get("timestamp", "")
+        o_day = row.get("override_day_type", "")
+        o_cycle = row.get("override_market_cycle", "")
+        label = f"**{ticker}** — {o_day} | {o_cycle} — _{ts}_"
+
+        with st.expander(label, expanded=False):
+            ecol1, ecol2 = st.columns(2)
+
+            with ecol1:
+                st.markdown("**Teacher\'s Correction:**")
+                st.markdown(f"- **Day Type:** {o_day}")
+                st.markdown(f"- **Market Cycle:** {o_cycle}")
+                st.markdown(f"- **Action:** {row.get('override_action', '')}")
+                st.markdown("")
+                st.markdown("**Setups:**")
+                for i in range(1, 6):
+                    s_name = row.get(f"override_setup_{i}", "")
+                    s_bar = row.get(f"override_setup_{i}_bar", "")
+                    s_price = row.get(f"override_setup_{i}_price", "")
+                    s_order = row.get(f"override_setup_{i}_order_type", "")
+                    if s_name and s_name not in ("", "N/A", "Error"):
+                        st.markdown(f"  {i}. **{s_name}** [{s_order}] @ Bar {s_bar}, ${s_price}")
+
+            with ecol2:
+                st.markdown("**Bot\'s Original Guess:**")
+                b_day = row.get("bot_day_type", "")
+                b_cycle = row.get("bot_market_cycle", "")
+                b_action = row.get("bot_action", "")
+                day_diff = " ✏️" if b_day != o_day else " ✅"
+                cycle_diff = " ✏️" if b_cycle != o_cycle else " ✅"
+                st.markdown(f"- **Day Type:** {b_day}{day_diff}")
+                st.markdown(f"- **Market Cycle:** {b_cycle}{cycle_diff}")
+                st.markdown(f"- **Action:** {b_action}")
+                st.markdown("")
+                st.markdown("**Bot\'s Setups:**")
+                for i in range(1, 6):
+                    s_name = row.get(f"bot_setup_{i}", "")
+                    s_bar = row.get(f"bot_setup_{i}_bar", "")
+                    s_price = row.get(f"bot_setup_{i}_price", "")
+                    s_order = row.get(f"bot_setup_{i}_order_type", "")
+                    if s_name and s_name not in ("", "N/A", "Error"):
+                        st.markdown(f"  {i}. {s_name} [{s_order}] @ Bar {s_bar}, ${s_price}")
+
+            # Teacher notes
+            notes = row.get("teacher_notes", "")
+            if notes and str(notes).strip():
+                st.markdown("---")
+                st.markdown(f"**Teacher\'s Notes:** {notes}")
+
+
 # ─────────────────────────── MAIN ────────────────────────────────────────────
 
 def main():
     render_sidebar()
 
-    tab_train, tab_history = st.tabs(["🧪 Training Lab", "📜 History"])
+    tab_train, tab_history, tab_examples = st.tabs(["🧪 Training Lab", "📜 History", "📚 Examples"])
 
     with tab_train:
         render_training_lab()
 
     with tab_history:
         render_history()
+
+    with tab_examples:
+        render_examples()
 
 
 if __name__ == "__main__":
