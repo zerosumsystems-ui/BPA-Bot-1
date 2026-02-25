@@ -855,50 +855,28 @@ def render_training_lab():
 
     # ── Teacher Override Column ──
     with col_form:
-        st.subheader("🎓 Teacher's Override")
-        st.markdown("**Top 5 Setups (Name, Bar #, Price, Order Type):**")
-        override_setups = []
-        override_bars = []
-        override_prices = []
-        override_orders = []
-
-        bot_setups = analysis.get("setups", [])
-        for i in range(5):
-            obj = bot_setups[i] if i < len(bot_setups) else {}
-            if isinstance(obj, str): # Fallback if bot hallucinates structure
-                obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
-            
-            b_name = obj.get("setup_name", "N/A")
-            b_bar = obj.get("entry_bar", 0)
-            b_price = obj.get("entry_price", 0.0)
-            b_order = obj.get("order_type", "N/A")
-
-            st.markdown(f"**Setup {i+1}** *(Bot: {b_name} [{b_order}] @ Bar {b_bar}, ${b_price})*")
-            scol1, scol2, scol3, scol4 = st.columns([3, 1, 1, 2])
-            with scol1:
-                bot_name = b_name if b_name else "?"
-                dyn_setup = [f"Approve Bot: {bot_name}"] + SETUP_OPTIONS[1:]
-                sel = st.selectbox("Name", dyn_setup, key=f"setup_name_{i}_{ticker}")
-                override_setups.append(sel)
-            with scol2:
-                br = st.number_input("Bar #", value=int(b_bar) if b_bar else 0, step=1, key=f"setup_bar_{i}_{ticker}")
-                override_bars.append(br)
-            with scol3:
-                pr = st.number_input("Price", value=float(b_price) if b_price else 0.0, step=0.1, format="%.2f", key=f"setup_price_{i}_{ticker}")
-                override_prices.append(pr)
-            with scol4:
-                bot_order = b_order if b_order else "?"
-                dyn_order = [f"Approve Bot: {bot_order}"] + ORDER_OPTIONS[1:]
-                ort = st.selectbox("Order Type", dyn_order, key=f"setup_order_{i}_{ticker}")
-                override_orders.append(ort)
-
+        st.subheader("🎓 Teacher's Workflow")
+        st.markdown("*To speed up training, you no longer manually edit 20 individual setup dropdowns. Just fix the header dropdowns above, add notes, and choose an action below.*")
+        
         bot_action = analysis.get("action", "?")
         dyn_action = [f"Approve Bot's Guess: {bot_action}"] + ACTION_OPTIONS[1:]
         action = st.selectbox("Action", dyn_action, key=f"action_{ticker}")
-        notes = st.text_area("Teacher's Notes", placeholder="Why did you override?", key=f"notes_{ticker}")
-
+        notes = st.text_area("Teacher's Notes", placeholder="Why did you override?", key=f"notes_{ticker}", height=100)
+        
+        st.markdown("---")
+        st.markdown("### Submission Action")
+        
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            approve_all = st.button("✅ Approve Everything", use_container_width=True, help="Use the bot's headers AND the bot's setups exactly as-is.")
+            submit_keep_setups = st.button("📝 Keep Setups & Correct Headers", use_container_width=True, help="Use your changed Day/Cycle dropdowns, but KEEP the bot's setups.")
+            skip = st.button("⏭️ Skip Chart", use_container_width=True)
+        with btn_col2:
+            submit_discard_setups = st.button("🗑️ Discard Setups & Correct Headers", use_container_width=True, help="Use your changed Day/Cycle dropdowns, but THROW AWAY all setups.")
+            ban = st.button("🚫 Not Liquid", use_container_width=True)
+            
     # ── Handle Buttons ──
-    if approve or submit:
+    if approve_all or submit_keep_setups or submit_discard_setups:
         row = {
             "timestamp": datetime.datetime.now().isoformat(),
             "ticker": ticker,
@@ -918,7 +896,7 @@ def render_training_lab():
             row[f"bot_setup_{i+1}_price"] = obj.get("entry_price", 0.0)
             row[f"bot_setup_{i+1}_order_type"] = obj.get("order_type", "")
 
-        if approve:
+        if approve_all:
             row["override_day_type"] = analysis.get("day_type", "")
             row["override_market_cycle"] = analysis.get("market_cycle", "")
             for i in range(5):
@@ -931,29 +909,28 @@ def render_training_lab():
                 row[f"override_setup_{i+1}_order_type"] = obj.get("order_type", "")
             row["override_action"] = analysis.get("action", "")
             row["teacher_notes"] = notes
-        else:  # submit corrections
-            row["override_day_type"] = day_type if not day_type.startswith("Approve Bot") else analysis.get("day_type", "")
-            row["override_market_cycle"] = market_cycle if not market_cycle.startswith("Approve Bot") else analysis.get("market_cycle", "")
+        elif submit_keep_setups: 
+            row["override_day_type"] = day_type if not str(day_type).startswith("Approve Bot") else analysis.get("day_type", "")
+            row["override_market_cycle"] = market_cycle if not str(market_cycle).startswith("Approve Bot") else analysis.get("market_cycle", "")
             for i in range(5):
                 obj = bot_setups[i] if i < len(bot_setups) else {}
                 if isinstance(obj, str):
                     obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
-                
-                # If teacher says "Approve", use the bot's guessed name
-                if override_setups[i].startswith("Approve Bot"):
-                    row[f"override_setup_{i+1}"] = obj.get("setup_name", "")
-                else:
-                    row[f"override_setup_{i+1}"] = override_setups[i]
-
-                row[f"override_setup_{i+1}_bar"] = override_bars[i]
-                row[f"override_setup_{i+1}_price"] = override_prices[i]
-                
-                if override_orders[i].startswith("Approve Bot"):
-                    row[f"override_setup_{i+1}_order_type"] = obj.get("order_type", "")
-                else:
-                    row[f"override_setup_{i+1}_order_type"] = override_orders[i]
-
-            row["override_action"] = action if not action.startswith("Approve Bot") else analysis.get("action", "")
+                row[f"override_setup_{i+1}"] = obj.get("setup_name", "")
+                row[f"override_setup_{i+1}_bar"] = obj.get("entry_bar", 0)
+                row[f"override_setup_{i+1}_price"] = obj.get("entry_price", 0.0)
+                row[f"override_setup_{i+1}_order_type"] = obj.get("order_type", "")
+            row["override_action"] = action if not str(action).startswith("Approve Bot") else analysis.get("action", "")
+            row["teacher_notes"] = notes
+        elif submit_discard_setups:
+            row["override_day_type"] = day_type if not str(day_type).startswith("Approve Bot") else analysis.get("day_type", "")
+            row["override_market_cycle"] = market_cycle if not str(market_cycle).startswith("Approve Bot") else analysis.get("market_cycle", "")
+            for i in range(5):
+                row[f"override_setup_{i+1}"] = ""
+                row[f"override_setup_{i+1}_bar"] = 0
+                row[f"override_setup_{i+1}_price"] = 0.0
+                row[f"override_setup_{i+1}_order_type"] = ""
+            row["override_action"] = action if not str(action).startswith("Approve Bot") else analysis.get("action", "")
             row["teacher_notes"] = notes
 
         # Update Encyclopedia if notes exist
