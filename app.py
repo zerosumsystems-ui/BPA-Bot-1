@@ -10,6 +10,8 @@ import json
 import random
 import datetime
 import pathlib
+import concurrent.futures
+import threading
 
 import streamlit as st
 import pandas as pd
@@ -410,7 +412,16 @@ def delete_row(idx: int):
 # ─────────────────────────── LOAD / INIT SESSION ─────────────────────────────
 
 def load_new_chart():
-    """Pick a random S&P 500 ticker and fetch data."""
+    """Pick a random S&P 500 ticker and fetch data. Uses prefetch if available."""
+    # Check if we have a prefetched chart ready
+    if "prefetch_ready" in st.session_state and st.session_state["prefetch_ready"]:
+        st.session_state["ticker"] = st.session_state.pop("prefetch_ticker")
+        st.session_state["chart_df"] = st.session_state.pop("prefetch_df")
+        st.session_state["chart_fig"] = st.session_state.pop("prefetch_fig")
+        st.session_state["bot_analysis"] = st.session_state.pop("prefetch_analysis")
+        st.session_state.pop("prefetch_ready", None)
+        return
+
     tickers = get_sp500_tickers()
     random.shuffle(tickers)
     for t in tickers:
@@ -420,6 +431,113 @@ def load_new_chart():
             st.session_state["chart_df"] = df
             return
     st.error("Could not fetch data for any ticker. Please try again.")
+
+
+def _add_annotations(fig, df, analysis):
+    """Add setup marker annotations to a chart figure."""
+    bot_setups = analysis.get("setups", [])
+    price_min = df["Low"].min()
+    price_max = df["High"].max()
+    price_range = price_max - price_min
+    annot_offset = price_range * 0.06
+
+    for i in range(5):
+        obj = bot_setups[i] if i < len(bot_setups) else {}
+        if isinstance(obj, str):
+            obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0}
+
+        b_name = obj.get("setup_name", "")
+        b_bar = obj.get("entry_bar", 0)
+        b_price = obj.get("entry_price", 0.0)
+
+        if b_bar and b_name and b_name != "N/A" and b_name != "Error":
+            bar_row = df[df["BarNumber"] == int(b_bar)]
+            if not bar_row.empty:
+                bar_low = bar_row["Low"].values[0]
+                bar_close = bar_row["Close"].values[0]
+            else:
+                bar_low = price_min
+                bar_close = price_min
+
+            if b_price and (price_min - price_range) <= float(b_price) <= (price_max + price_range):
+                validated_price = float(b_price)
+            else:
+                validated_price = bar_close
+
+            action_dir = analysis.get("action", "")
+            color = "#4ade80" if action_dir == "Buy" else "#f87171" if action_dir == "Sell" else "#fbbf24"
+            fig.add_shape(
+                type="line",
+                x0=int(b_bar) - 0.45,
+                x1=int(b_bar) + 0.45,
+                y0=validated_price,
+                y1=validated_price,
+                line=dict(color="#fbbf24", width=3, dash="dot"),
+                layer="above"
+            )
+            fig.add_annotation(
+                x=int(b_bar),
+                y=bar_low - annot_offset * (1 + i * 0.5),
+                text=f"{b_name}<br>(Bar {b_bar})",
+                showarrow=True,
+                arrowhead=0,
+                arrowwidth=1,
+                arrowcolor=color,
+                ay=20,
+                ax=0,
+                yanchor="top",
+                font=dict(color=color, size=10, family="Arial"),
+                bgcolor="rgba(15, 23, 42, 0.8)",
+                bordercolor=color,
+                borderwidth=1,
+                borderpad=2,
+                opacity=0.9
+            )
+
+
+def _do_prefetch():
+    """Background: fetch a random ticker, build chart, query Gemini."""
+    try:
+        tickers = get_sp500_tickers()
+        random.shuffle(tickers)
+        for t in tickers:
+            df = fetch_chart_data(t)
+            if df is not None and len(df) > 30:
+                fig = build_chart(df, t)
+                analysis = analyze_chart(fig)
+                _add_annotations(fig, df, analysis)
+                return {"ticker": t, "df": df, "fig": fig, "analysis": analysis}
+        return {}
+    except Exception:
+        return {}
+
+
+def start_prefetch():
+    """Start background prefetch of next chart."""
+    if "prefetch_future" not in st.session_state:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_do_prefetch)
+        st.session_state["prefetch_future"] = future
+        st.session_state["prefetch_executor"] = executor
+
+
+def check_prefetch():
+    """Check if background prefetch is done and store results."""
+    if "prefetch_future" in st.session_state:
+        future = st.session_state["prefetch_future"]
+        if future.done():
+            result = future.result()
+            if result:
+                st.session_state["prefetch_ticker"] = result["ticker"]
+                st.session_state["prefetch_df"] = result["df"]
+                st.session_state["prefetch_fig"] = result["fig"]
+                st.session_state["prefetch_analysis"] = result["analysis"]
+                st.session_state["prefetch_ready"] = True
+            executor = st.session_state.pop("prefetch_executor", None)
+            if executor:
+                executor.shutdown(wait=False)
+            st.session_state.pop("prefetch_future", None)
+
 
 # ─────────────────────────── SIDEBAR ─────────────────────────────────────────
 
@@ -481,93 +599,35 @@ def render_training_lab():
     if "ticker" not in st.session_state:
         return  # error was already shown
 
-    if "bot_analysis" not in st.session_state:
-        st.info("Loading chart data and querying Gemini. Please wait...")
-        df = st.session_state["chart_df"] # df is already loaded by load_new_chart
-        ticker = st.session_state["ticker"]
-        
-        # Build clean chart for Gemini
+    ticker = st.session_state["ticker"]
+    df = st.session_state["chart_df"]
+
+    # PHASE 1: Build and show the chart IMMEDIATELY (no waiting for Gemini)
+    if "chart_fig" not in st.session_state:
         fig = build_chart(df, ticker)
-        
-        # Have bot analyze the clean chart
-        analysis = analyze_chart(fig)
-        st.session_state["bot_analysis"] = analysis
-
-        # Now add visual markers to the chart BEFORE displaying it
-        bot_setups = analysis.get("setups", [])
-        # Pre-compute actual price range to validate bot-guessed prices
-        price_min = df["Low"].min()
-        price_max = df["High"].max()
-        price_range = price_max - price_min
-        # Annotation offset: small gap below bar lows so labels don't overlap candles
-        annot_offset = price_range * 0.06
-
-        for i in range(5):
-            obj = bot_setups[i] if i < len(bot_setups) else {}
-            if isinstance(obj, str):
-                obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0}
-
-            b_name = obj.get("setup_name", "")
-            b_bar = obj.get("entry_bar", 0)
-            b_price = obj.get("entry_price", 0.0)
-
-            # Attempt to map Bar Number to the x-axis directly
-            if b_bar and b_name and b_name != "N/A" and b_name != "Error":
-                bar_row = df[df["BarNumber"] == int(b_bar)]
-                if not bar_row.empty:
-                    bar_low = bar_row["Low"].values[0]
-                    bar_close = bar_row["Close"].values[0]
-                else:
-                    bar_low = price_min
-                    bar_close = price_min
-
-                # Validate price: if bot hallucinated a price outside data range, use bar close
-                if b_price and (price_min - price_range) <= float(b_price) <= (price_max + price_range):
-                    validated_price = float(b_price)
-                else:
-                    validated_price = bar_close
-
-                # Draw annotation on chart using the Bar Number
-                action_dir = analysis.get("action", "")
-                color = "#4ade80" if action_dir == "Buy" else "#f87171" if action_dir == "Sell" else "#fbbf24"
-                # Draw a horizontal line exactly the width of the entry candle
-                fig.add_shape(
-                    type="line",
-                    x0=int(b_bar) - 0.45,
-                    x1=int(b_bar) + 0.45,
-                    y0=validated_price,
-                    y1=validated_price,
-                    line=dict(color="#fbbf24", width=3, dash="dot"),
-                    layer="above"
-                )
-
-                # Position label just below the bar low, anchored to real price data
-                fig.add_annotation(
-                    x=int(b_bar),
-                    y=bar_low - annot_offset * (1 + i * 0.5),
-                    text=f"{b_name}<br>(Bar {b_bar})",
-                    showarrow=True,
-                    arrowhead=0,
-                    arrowwidth=1,
-                    arrowcolor=color,
-                    ay=20,
-                    ax=0,
-                    yanchor="top",
-                    font=dict(color=color, size=10, family="Arial"),
-                    bgcolor="rgba(15, 23, 42, 0.8)",
-                    bordercolor=color,
-                    borderwidth=1,
-                    borderpad=2,
-                    opacity=0.9
-                )
-
-        # Save annotated chart for display
         st.session_state["chart_fig"] = fig
+
+    fig = st.session_state["chart_fig"]
+
+    if "bot_analysis" not in st.session_state:
+        # Show the clean chart right away with a spinner below
+        st.plotly_chart(fig, use_container_width=True, key="main_chart_loading")
+        with st.spinner("\U0001f916 Bot is analyzing the chart with Gemini..."):
+            analysis = analyze_chart(fig)
+        st.session_state["bot_analysis"] = analysis
+        # Add annotations now that we have analysis
+        _add_annotations(fig, df, analysis)
+        st.session_state["chart_fig"] = fig
+        # Start prefetching the NEXT chart in background
+        start_prefetch()
         st.rerun()
 
-    ticker = st.session_state["ticker"]
-    fig = st.session_state["chart_fig"]
     analysis = st.session_state["bot_analysis"]
+
+    # Check/start prefetch for next chart
+    check_prefetch()
+    if "prefetch_future" not in st.session_state and "prefetch_ready" not in st.session_state:
+        start_prefetch()
 
     st.plotly_chart(fig, use_container_width=True, key="main_chart")
 
