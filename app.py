@@ -578,6 +578,25 @@ def _add_annotations(fig, df, analysis):
 
             action_dir = analysis.get("action", "")
             color = "#4ade80" if action_dir == "Buy" else "#f87171" if action_dir == "Sell" else "#fbbf24"
+            
+            # Highlight Signal Bar (Yellow)
+            fig.add_vrect(
+                x0=int(b_bar) - 1.45,
+                x1=int(b_bar) - 0.55,
+                fillcolor="rgba(255, 255, 0, 0.3)",
+                layer="below",
+                line_width=0,
+            )
+            
+            # Highlight Entry Bar (Purple)
+            fig.add_vrect(
+                x0=int(b_bar) - 0.45,
+                x1=int(b_bar) + 0.45,
+                fillcolor="rgba(128, 0, 128, 0.3)",
+                layer="below",
+                line_width=0,
+            )
+            
             fig.add_shape(
                 type="line",
                 x0=int(b_bar) - 0.45,
