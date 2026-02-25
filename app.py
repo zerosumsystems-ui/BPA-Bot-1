@@ -63,7 +63,8 @@ DAY_TYPE_OPTIONS = [
     "Triangle Trading Range Day",
     "Bull Trend From The Open",
     "Bear Trend From The Open",
-    "Trending Trading Range Day",
+    "Trending Trading Range Day (Bull)",
+    "Trending Trading Range Day (Bear)",
     "Small Pullback Bull Trend",
     "Small Pullback Bear Trend",
     "Spike and Channel Bull Trend",
@@ -82,7 +83,8 @@ MARKET_CYCLE_OPTIONS = [
     "Breakout (Spike)",
     "Micro Channel",
     "Tight Channel (Small PB Trend)",
-    "Broad Channel",
+    "Broad Bull Channel",
+    "Broad Bear Channel",
     "Trading Range",
 ]
 
@@ -287,8 +289,8 @@ Encyclopedia rules:
 
 You MUST return a strict JSON object with exactly these keys:
   day_type,        If unclear, guess the most likely context. Follow Al Brooks' terminology exactly:
-        - Day Types: "Trading Range Day", "Triangle Trading Range Day", "Bull Trend From The Open", "Bear Trend From The Open", "Trending Trading Range Day", "Small Pullback Bull Trend", "Small Pullback Bear Trend", "Spike and Channel Bull Trend", "Spike and Channel Bear Trend", "Broad Bull Channel", "Broad Bear Channel", "Shrinking Stairs", "Reversal Day (Bull)", "Reversal Day (Bear)", "Crash Day", "Climax Day".]
-- market_cycle: one of ["Breakout (Spike)","Micro Channel","Tight Channel (Small PB Trend)","Broad Channel","Trading Range"]
+        - Day Types: "Trading Range Day", "Triangle Trading Range Day", "Bull Trend From The Open", "Bear Trend From The Open", "Trending Trading Range Day (Bull)", "Trending Trading Range Day (Bear)", "Small Pullback Bull Trend", "Small Pullback Bear Trend", "Spike and Channel Bull Trend", "Spike and Channel Bear Trend", "Broad Bull Channel", "Broad Bear Channel", "Shrinking Stairs", "Reversal Day (Bull)", "Reversal Day (Bear)", "Crash Day", "Climax Day".]
+- market_cycle: one of ["Breakout (Spike)","Micro Channel","Tight Channel (Small PB Trend)","Broad Bull Channel","Broad Bear Channel","Trading Range"]
 - reasoning: A brief 1-sentence explanation of your overall analysis of the chart.
 - setups: A list of the top 5 BEST setups of the day. Each item in the list MUST be a JSON object with exactly these keys: `{{"setup_name": "...", "entry_bar": 1, "entry_price": 0.00, "order_type": "...", "reason_1": "...", "reason_2": "..."}}`. `setup_name` MUST STRICTLY be one of ["High 1 Bull Flag","High 2 Bull Flag","High 3 Bull Flag","High 4 Bull Flag","Low 1 Bear Flag","Low 2 Bear Flag","Low 3 Bear Flag","Low 4 Bear Flag","Double Bottom","Double Top","Higher Low Double Bottom","Lower Low Double Bottom","Lower High Double Top","Higher High Double Top","Major Trend Reversal (Bull)","Major Trend Reversal (Bear)","Wedge Bottom","Wedge Top","Parabolic Wedge Bottom","Parabolic Wedge Top","Spike and Channel Bull","Spike and Channel Bear","Head & Shoulders Bottom","Head & Shoulders Top","Final Bull Flag","Final Bear Flag","Breakout (BO)","Breakout Test","Failed Breakout (Bull Trap)","Failed Breakout (Bear Trap)","Measuring Gap / Exhaustion Gap","Buy Climax","Sell Climax","Ledge Bottom","Ledge Top","ii Pattern","ioi Pattern","OO Pattern","Opening Reversal (Bull)","Opening Reversal (Bear)","20-Gap Bar Buy","20-Gap Bar Sell","Cup and Handle"]. DO NOT invent or use any other setup names. `entry_bar` is the integer Bar Number of the EXACT bar where the trade triggers and enters the market (NOT the signal bar that setup the trade). Note: The X-axis gridlines are printed in increments of 5 (1, 6, 11, 16, etc), you must count carefully. `order_type` MUST be exactly "Stop" or "Limit", denoting how the entry is executed mechanically. `reason_1` and `reason_2` are two distinct technical reasons justifying why this setup is valid (as Al Brooks requires 2 reasons to take any trade).
 - action: one of ["Buy","Sell","Wait / No Trade"]
