@@ -654,7 +654,6 @@ def _do_prefetch():
             if df is not None and len(df) > 30:
                 fig = build_chart(df, t)
                 analysis = analyze_chart(fig)
-                _add_annotations(fig, df, analysis)
                 return {"ticker": t, "df": df, "fig": fig, "analysis": analysis}
         return {}
     except Exception:
@@ -750,22 +749,35 @@ def render_training_lab():
 
     ticker = st.session_state["ticker"]
     df = st.session_state["chart_df"]
+    
+    # ── Setup Header Defaults from Bot Analysis if Available ──
+    analysis = st.session_state.get("bot_analysis", {})
+    
+    bot_day_type = analysis.get("day_type", "Approve Bot's Guess")
+    try:
+        dt_index = DAY_TYPE_OPTIONS.index(bot_day_type)
+    except ValueError:
+        dt_index = 0
+        
+    bot_market_cycle = analysis.get("market_cycle", "Approve Bot's Guess")
+    try:
+        mc_index = MARKET_CYCLE_OPTIONS.index(bot_market_cycle)
+    except ValueError:
+        mc_index = 0
+
+    show_annotations = st.toggle("🔍 Show Bot Setups & Coloring", value=True, key=f"toggle_{ticker}")
 
     # ── Header Dropdowns ──
     top_col1, top_col2 = st.columns(2)
     with top_col1:
         st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Day Type</h3>", unsafe_allow_html=True)
-        day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS, key=f"day_type_{ticker}", label_visibility="collapsed")
+        day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS, index=dt_index, key=f"day_type_{ticker}", label_visibility="collapsed")
     with top_col2:
         st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Market Cycle</h3>", unsafe_allow_html=True)
-        market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS, key=f"market_cycle_{ticker}", label_visibility="collapsed")
+        market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS, index=mc_index, key=f"market_cycle_{ticker}", label_visibility="collapsed")
 
-    # PHASE 1: Build and show the chart IMMEDIATELY (no waiting for Gemini)
-    if "chart_fig" not in st.session_state:
-        fig = build_chart(df, ticker)
-        st.session_state["chart_fig"] = fig
-
-    fig = st.session_state["chart_fig"]
+    # PHASE 1: Rebuild base chart clean every time to support toggles
+    fig = build_chart(df, ticker)
 
     if "bot_analysis" not in st.session_state:
         # Show the clean chart right away with a spinner below
@@ -773,14 +785,12 @@ def render_training_lab():
         with st.spinner("\U0001f916 Bot is analyzing the chart with Gemini..."):
             analysis = analyze_chart(fig)
         st.session_state["bot_analysis"] = analysis
-        # Add annotations now that we have analysis
-        _add_annotations(fig, df, analysis)
-        st.session_state["chart_fig"] = fig
-        # Start prefetching the NEXT chart in background
-        start_prefetch()
         st.rerun()
 
     analysis = st.session_state["bot_analysis"]
+
+    if show_annotations:
+        _add_annotations(fig, df, analysis)
 
     # Check/start prefetch for next chart
     check_prefetch()
