@@ -454,6 +454,49 @@ Return ONLY the raw updated markdown file content. Do not include ```markdown fo
     except Exception as e:
         st.error(f"Failed to auto-update encyclopedia: {e}")
 
+def ask_bot_question(question: str, fig: go.Figure, analysis_json: dict) -> str:
+    """Send a specific user question about the current chart to the bot."""
+    api_key = get_api_key()
+    if not api_key:
+        return "API Key missing. Cannot answer questions."
+
+    try:
+        from google.genai import types
+        client = genai.Client(api_key=api_key)
+        
+        # Convert figure to PNG bytes
+        img_bytes = fig.to_image(format="png", width=1000, height=500, scale=1.5)
+        
+        # Build strict context
+        encyclopedia = load_encyclopedia()
+        prompt_context = f"""You are answering a question from your human Teacher about a specific 5-minute stock chart.
+You recently analyzed this chart and outputted the following structured JSON response:
+{json.dumps(analysis_json, indent=2)}
+
+You must answer the Teacher's following question honestly and concisely based on your analysis and the Al Brooks rules. Do not hallucinate or guess. If you made a mistake in your JSON analysis, admit it.
+
+Al Brooks Rules Context:
+{encyclopedia}
+
+Teacher's Question: {question}"""
+
+        response = client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=prompt_context),
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
+                    ]
+                )
+            ],
+            config=types.GenerateContentConfig(temperature=0.4)
+        )
+        return response.text.strip()
+    except Exception as e:
+        return f"Error connecting to bot: {str(e)}"
+
 # ─────────────────────────── CSV HELPERS ─────────────────────────────────────
 
 def load_training_csv() -> pd.DataFrame:
@@ -721,6 +764,35 @@ def render_training_lab():
             if "_error" in analysis:
                 st.warning(analysis["_error"])
             st.json(analysis)
+            
+            st.markdown("---")
+            st.subheader("💬 Ask the Bot")
+            
+            # Initialize chat history if missing
+            if "chat_history" not in st.session_state:
+                st.session_state["chat_history"] = []
+                
+            # Render existing chat
+            chat_container = st.container(height=300)
+            with chat_container:
+                for msg in st.session_state["chat_history"]:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
+                        
+            # Accept user input
+            user_question = st.chat_input("Ask why it chose a specific signal...")
+            if user_question:
+                # Add user msg to state and render
+                st.session_state["chat_history"].append({"role": "user", "content": user_question})
+                with chat_container:
+                    with st.chat_message("user"):
+                        st.markdown(user_question)
+                    with st.chat_message("assistant"):
+                        with st.spinner("Thinking..."):
+                            bot_response = ask_bot_question(user_question, fig, analysis)
+                        st.markdown(bot_response)
+                # Save assistant response to state
+                st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
 
         # ── Teacher Override Column ──
         with col_form:
@@ -829,7 +901,7 @@ def render_training_lab():
 
         save_row(row)
         # Clear session state to force new chart
-        for key in ["ticker", "chart_df", "chart_fig", "bot_analysis"]:
+        for key in ["ticker", "chart_df", "chart_fig", "bot_analysis", "chat_history"]:
             st.session_state.pop(key, None)
         st.rerun()
 
@@ -837,7 +909,7 @@ def render_training_lab():
         if ban:
             add_to_do_not_trade(ticker)
             st.toast(f"{ticker} has been permanently excluded from training!", icon="🚫")
-        for key in ["ticker", "chart_df", "chart_fig", "bot_analysis"]:
+        for key in ["ticker", "chart_df", "chart_fig", "bot_analysis", "chat_history"]:
             st.session_state.pop(key, None)
         st.rerun()
 
