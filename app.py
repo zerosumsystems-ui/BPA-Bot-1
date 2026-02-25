@@ -760,13 +760,40 @@ def render_training_lab():
 
         # ── Bot Analysis Column ──
         with col_bot:
-            st.subheader("🤖 Bot's Analysis")
+            st.subheader("💬 Ask the Bot")
+            
+            # Initialize chat history if missing
+            if "chat_history" not in st.session_state:
+                st.session_state["chat_history"] = []
+                
+            # Render existing chat
+            chat_container = st.container(height=300)
+            with chat_container:
+                for msg in st.session_state["chat_history"]:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
+                        
+            # Accept user input
+            user_question = st.chat_input("Ask why it chose a specific signal...")
+            if user_question:
+                # Add user msg to state and render
+                st.session_state["chat_history"].append({"role": "user", "content": user_question})
+                with chat_container:
+                    with st.chat_message("user"):
+                        st.markdown(user_question)
+                    with st.chat_message("assistant"):
+                        with st.spinner("Thinking..."):
+                            bot_response = ask_bot_question(user_question, fig, analysis)
+                        st.markdown(bot_response)
+                # Save assistant response to state
+                st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
+                
+            st.markdown("---")
+            st.subheader("🤖 Bot's JSON Analysis")
             if "_error" in analysis:
                 st.warning(analysis["_error"])
-            st.json(analysis)
-            
-            st.markdown("---")
-            st.subheader("💬 Ask the Bot")
+            with st.expander("Raw API JSON Output", expanded=False):
+                st.json(analysis)
             
             # Initialize chat history if missing
             if "chat_history" not in st.session_state:
