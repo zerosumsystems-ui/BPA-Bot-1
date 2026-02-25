@@ -2,10 +2,17 @@ services:
   - type: web
     name: bpa-bot-trainer
     runtime: python
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    disk:
+      name: training-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.11"
+      - key: DATA_DIR
+        value: "/data"
       - key: GEMINI_API_KEY
         sync: false

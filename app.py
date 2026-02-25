@@ -26,8 +26,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-TRAINING_CSV = pathlib.Path("training_data.csv")
-ENCYCLOPEDIA_PATH = pathlib.Path("brooks_encyclopedia_learnings.md")
+# Use DATA_DIR env var for persistent storage (Render Disk mount)
+# Locally defaults to "." so nothing changes for local dev
+DATA_DIR = pathlib.Path(os.environ.get("DATA_DIR", "."))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+TRAINING_CSV = DATA_DIR / "training_data.csv"
+ENCYCLOPEDIA_PATH = DATA_DIR / "brooks_encyclopedia_learnings.md"
 
 CSV_COLUMNS = [
     "timestamp", "ticker",
