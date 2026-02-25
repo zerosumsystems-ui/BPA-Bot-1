@@ -676,21 +676,31 @@ def render_training_lab():
     if "prefetch_future" not in st.session_state and "prefetch_ready" not in st.session_state:
         start_prefetch()
 
-    st.plotly_chart(fig, use_container_width=True, key="main_chart")
+    with st.form("override_form", clear_on_submit=True):
+        st.plotly_chart(fig, use_container_width=True, key="main_chart")
+        
+        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        with btn_col1:
+            approve = st.form_submit_button("✅ Approve All", use_container_width=True)
+        with btn_col2:
+            submit = st.form_submit_button("📝 Submit Corrections", use_container_width=True)
+        with btn_col3:
+            skip = st.form_submit_button("⏭️ Skip Chart", use_container_width=True)
+            
+        st.markdown("---")
 
-    col_bot, col_form = st.columns([1, 1], gap="large")
+        col_bot, col_form = st.columns([1, 1], gap="large")
 
-    # ── Bot Analysis Column ──
-    with col_bot:
-        st.subheader("🤖 Bot's Analysis")
-        if "_error" in analysis:
-            st.warning(analysis["_error"])
-        st.json(analysis)
+        # ── Bot Analysis Column ──
+        with col_bot:
+            st.subheader("🤖 Bot's Analysis")
+            if "_error" in analysis:
+                st.warning(analysis["_error"])
+            st.json(analysis)
 
-    # ── Teacher Override Column ──
-    with col_form:
-        st.subheader("🎓 Teacher's Override")
-        with st.form("override_form", clear_on_submit=True):
+        # ── Teacher Override Column ──
+        with col_form:
+            st.subheader("🎓 Teacher's Override")
             day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS)
             market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS)
             st.markdown("**Top 5 Setups (Name, Bar #, Price, Order Type):**")
@@ -727,14 +737,6 @@ def render_training_lab():
 
             action = st.selectbox("Action", ACTION_OPTIONS)
             notes = st.text_area("Teacher's Notes", placeholder="Why did you override?")
-
-            btn_col1, btn_col2, btn_col3 = st.columns(3)
-            with btn_col1:
-                approve = st.form_submit_button("✅ Approve All", use_container_width=True)
-            with btn_col2:
-                submit = st.form_submit_button("📝 Submit Corrections", use_container_width=True)
-            with btn_col3:
-                skip = st.form_submit_button("⏭️ Skip Chart", use_container_width=True)
 
     # ── Handle Buttons ──
     if approve or submit:
