@@ -590,10 +590,10 @@ def _add_annotations(fig, df, analysis):
                     low=[sig_row["Low"].values[0]],
                     close=[sig_row["Close"].values[0]],
                     name="Signal Bar",
-                    increasing_line_color="#fde047", # Bright yellow
-                    decreasing_line_color="#fde047",
-                    increasing_fillcolor="#fde047",
-                    decreasing_fillcolor="#fde047",
+                    increasing_line_color="#f59e0b", # Lion King Gold
+                    decreasing_line_color="#f59e0b",
+                    increasing_fillcolor="#f59e0b",
+                    decreasing_fillcolor="#f59e0b",
                     showlegend=False,
                 ))
             
