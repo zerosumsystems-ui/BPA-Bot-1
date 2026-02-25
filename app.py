@@ -579,43 +579,41 @@ def _add_annotations(fig, df, analysis):
             action_dir = analysis.get("action", "")
             color = "#4ade80" if action_dir == "Buy" else "#f87171" if action_dir == "Sell" else "#fbbf24"
             
-            # Highlight Signal Bar (Yellow) - Tightly bound to High/Low
+            # Color Signal Bar (Yellow)
             sig_bar = int(b_bar) - 1
             sig_row = df[df["BarNumber"] == sig_bar]
             if not sig_row.empty:
-                sig_high = sig_row["High"].values[0]
-                sig_low = sig_row["Low"].values[0]
-                # Add small margin
-                margin = (sig_high - sig_low) * 0.1 if sig_high != sig_low else price_range * 0.01
-                fig.add_shape(
-                    type="rect",
-                    x0=sig_bar - 0.45,
-                    x1=sig_bar + 0.45,
-                    y0=sig_low - margin,
-                    y1=sig_high + margin,
-                    fillcolor="rgba(255, 255, 0, 0.3)",
-                    layer="below",
-                    line_width=0,
-                )
+                fig.add_trace(go.Candlestick(
+                    x=[sig_row["BarNumber"].values[0]],
+                    open=[sig_row["Open"].values[0]],
+                    high=[sig_row["High"].values[0]],
+                    low=[sig_row["Low"].values[0]],
+                    close=[sig_row["Close"].values[0]],
+                    name="Signal Bar",
+                    increasing_line_color="#fde047", # Bright yellow
+                    decreasing_line_color="#fde047",
+                    increasing_fillcolor="#fde047",
+                    decreasing_fillcolor="#fde047",
+                    showlegend=False,
+                ))
             
-            # Highlight Entry Bar (Purple) - Tightly bound to High/Low
+            # Color Entry Bar (Purple)
             ent_bar = int(b_bar)
             ent_row = df[df["BarNumber"] == ent_bar]
             if not ent_row.empty:
-                ent_high = ent_row["High"].values[0]
-                ent_low = ent_row["Low"].values[0]
-                # Add small margin
-                margin = (ent_high - ent_low) * 0.1 if ent_high != ent_low else price_range * 0.01
-                fig.add_shape(
-                    type="rect",
-                    x0=ent_bar - 0.45,
-                    x1=ent_bar + 0.45,
-                    y0=ent_low - margin,
-                    y1=ent_high + margin,
-                    fillcolor="rgba(128, 0, 128, 0.4)",
-                    layer="below",
-                    line_width=0,
-                )
+                fig.add_trace(go.Candlestick(
+                    x=[ent_row["BarNumber"].values[0]],
+                    open=[ent_row["Open"].values[0]],
+                    high=[ent_row["High"].values[0]],
+                    low=[ent_row["Low"].values[0]],
+                    close=[ent_row["Close"].values[0]],
+                    name="Entry Bar",
+                    increasing_line_color="#c084fc", # Light purple
+                    decreasing_line_color="#c084fc",
+                    increasing_fillcolor="#c084fc",
+                    decreasing_fillcolor="#c084fc",
+                    showlegend=False,
+                ))
             
             fig.add_shape(
                 type="line",
