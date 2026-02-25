@@ -197,10 +197,14 @@ def add_to_do_not_trade(ticker: str):
 
 # ─────────────────────────── DATA FETCHING ───────────────────────────────────
 
-def fetch_chart_data(ticker: str) -> pd.DataFrame | None:
-    """Fetch 3 days of 5-minute OHLCV data for *ticker*."""
+def fetch_chart_data(ticker: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame | None:
+    """Fetch 5-minute OHLCV data for *ticker*. If dates are provided, fetches that specific range."""
     try:
-        df = yf.download(ticker, period="1d", interval="5m", progress=False)
+        if start_date and end_date:
+            df = yf.download(ticker, start=start_date, end=end_date, interval="5m", progress=False)
+        else:
+            df = yf.download(ticker, period="1d", interval="5m", progress=False)
+            
         if df is None or df.empty:
             return None
         # Flatten multi-level columns if present
@@ -1115,6 +1119,48 @@ def render_examples():
             if notes and str(notes).strip():
                 st.markdown("---")
                 st.markdown(f"**Teacher\'s Notes:** {notes}")
+
+            st.markdown("---")
+            if st.button("📈 Load Historical Chart & UI", key=f"load_hist_chart_{idx}_{ticker}"):
+                with st.spinner(f"Fetching historical data for {ticker}..."):
+                    # Parse timestamp to get the trading day
+                    try:
+                        dt = datetime.datetime.fromisoformat(ts)
+                        # yfinance expects YYYY-MM-DD. To get a single day of intraday data, 
+                        # start is that day, end is the NEXT day.
+                        start_str = dt.strftime("%Y-%m-%d")
+                        end_str = (dt + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+                        hist_df = fetch_chart_data(ticker, start_date=start_str, end_date=end_str)
+                        
+                        if hist_df is not None and not hist_df.empty:
+                            hist_fig = build_chart(hist_df, ticker)
+                            
+                            # Reconstruct bot analysis dict from CSV row
+                            reconstructed_analysis = {
+                                "day_type": b_day,
+                                "market_cycle": b_cycle,
+                                "action": b_action,
+                                "setups": []
+                            }
+                            for i in range(1, 6):
+                                s_name = row.get(f"bot_setup_{i}", "")
+                                if s_name and s_name not in ("N/A", "Error", ""):
+                                    s_bar = row.get(f"bot_setup_{i}_bar", 0)
+                                    s_price = row.get(f"bot_setup_{i}_price", 0.0)
+                                    s_order = row.get(f"bot_setup_{i}_order_type", "")
+                                    reconstructed_analysis["setups"].append({
+                                        "setup_name": s_name,
+                                        "entry_bar": int(s_bar) if pd.notna(s_bar) else 0,
+                                        "entry_price": float(s_price) if pd.notna(s_price) else 0.0,
+                                        "order_type": s_order
+                                    })
+                                    
+                            _add_annotations(hist_fig, hist_df, reconstructed_analysis)
+                            st.plotly_chart(hist_fig, use_container_width=True, key=f"hist_chart_fig_{idx}")
+                        else:
+                            st.error(f"Intraday data for {ticker} on {start_str} is no longer available from Yahoo Finance (usually expires after 60 days).")
+                    except Exception as e:
+                        st.error(f"Failed to load historical chart: {e}")
 
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
