@@ -326,7 +326,49 @@ def _get_or_create_cache(client, system_text: str) -> str:
         return None
 
 
-def analyze_chart(fig: go.Figure) -> dict:
+@st.cache_data(show_spinner=False, max_entries=50)
+def _call_gemini_vision(ticker: str, img_bytes: bytes, system_text: str, api_key: str) -> dict:
+    from google.genai import types
+    client = genai.Client(api_key=api_key)
+    cache_name = _get_or_create_cache(client, system_text)
+    
+    if cache_name:
+        config = types.GenerateContentConfig(
+            cached_content=cache_name,
+            temperature=0.2,
+            response_mime_type="application/json",
+        )
+    else:
+        config = types.GenerateContentConfig(
+            system_instruction=system_text,
+            temperature=0.2,
+            response_mime_type="application/json",
+        )
+
+    response = client.models.generate_content(
+        model="gemini-2.5-pro",
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text="Analyze this 5-minute price action chart:"),
+                    types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
+                ]
+            )
+        ],
+        config=config,
+    )
+
+    raw = response.text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+    return json.loads(raw)
+
+
+def analyze_chart(fig: go.Figure, ticker: str) -> dict:
     """Send chart image to Gemini and get a structured analysis."""
     api_key = get_api_key()
     if not api_key:
@@ -349,47 +391,7 @@ def analyze_chart(fig: go.Figure) -> dict:
     system_text = SYSTEM_PROMPT.format(encyclopedia=encyclopedia if encyclopedia else "(no rules loaded yet)")
 
     try:
-        from google.genai import types
-        client = genai.Client(api_key=api_key)
-        cache_name = _get_or_create_cache(client, system_text)
-        
-        if cache_name:
-            config = types.GenerateContentConfig(
-                cached_content=cache_name,
-                temperature=0.2,
-                response_mime_type="application/json",
-            )
-        else:
-            config = types.GenerateContentConfig(
-                system_instruction=system_text,
-                temperature=0.2,
-                response_mime_type="application/json",
-            )
-
-        response = client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text="Analyze this 5-minute price action chart:"),
-                        types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
-                    ]
-                )
-            ],
-            config=config,
-        )
-
-        raw = response.text.strip()
-        # Strip any accidental markdown fences
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1]
-        if raw.endswith("```"):
-            raw = raw.rsplit("```", 1)[0]
-        raw = raw.strip()
-
-        return json.loads(raw)
-
+        return _call_gemini_vision(ticker, img_bytes, system_text, api_key)
     except Exception as e:
         return {
             "day_type": "Error",
@@ -655,7 +657,7 @@ def _do_prefetch():
             df = fetch_chart_data(t)
             if df is not None and len(df) > 30:
                 fig = build_chart(df, t)
-                analysis = analyze_chart(fig)
+                analysis = analyze_chart(fig, t)
                 return {"ticker": t, "df": df, "fig": fig, "analysis": analysis}
         return {}
     except Exception:
@@ -785,7 +787,7 @@ def render_training_lab():
         # Show the clean chart right away with a spinner below
         st.plotly_chart(fig, use_container_width=True, key="main_chart_loading")
         with st.spinner("\U0001f916 Bot is analyzing the chart with Gemini..."):
-            analysis = analyze_chart(fig)
+            analysis = analyze_chart(fig, ticker)
         st.session_state["bot_analysis"] = analysis
         st.rerun()
 
