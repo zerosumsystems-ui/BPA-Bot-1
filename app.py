@@ -495,19 +495,37 @@ def render_training_lab():
 
         # Now add visual markers to the chart BEFORE displaying it
         bot_setups = analysis.get("setups", [])
+        # Pre-compute actual price range to validate bot-guessed prices
+        price_min = df["Low"].min()
+        price_max = df["High"].max()
+        price_range = price_max - price_min
+        # Annotation offset: small gap below bar lows so labels don't overlap candles
+        annot_offset = price_range * 0.06
+
         for i in range(5):
             obj = bot_setups[i] if i < len(bot_setups) else {}
-            if isinstance(obj, str): # Fallback if bot hallucinates structure
+            if isinstance(obj, str):
                 obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0}
-            
+
             b_name = obj.get("setup_name", "")
             b_bar = obj.get("entry_bar", 0)
             b_price = obj.get("entry_price", 0.0)
 
             # Attempt to map Bar Number to the x-axis directly
-            if b_bar and b_price and b_name != "N/A" and b_name != "Error":
+            if b_bar and b_name and b_name != "N/A" and b_name != "Error":
                 bar_row = df[df["BarNumber"] == int(b_bar)]
-                bar_low = bar_row["Low"].values[0] if not bar_row.empty else float(b_price)
+                if not bar_row.empty:
+                    bar_low = bar_row["Low"].values[0]
+                    bar_close = bar_row["Close"].values[0]
+                else:
+                    bar_low = price_min
+                    bar_close = price_min
+
+                # Validate price: if bot hallucinated a price outside data range, use bar close
+                if b_price and (price_min - price_range) <= float(b_price) <= (price_max + price_range):
+                    validated_price = float(b_price)
+                else:
+                    validated_price = bar_close
 
                 # Draw annotation on chart using the Bar Number
                 action_dir = analysis.get("action", "")
@@ -517,21 +535,26 @@ def render_training_lab():
                     type="line",
                     x0=int(b_bar) - 0.45,
                     x1=int(b_bar) + 0.45,
-                    y0=float(b_price),
-                    y1=float(b_price),
-                    line=dict(color="#fbbf24", width=3, dash="dot"), # Gold, dotted
+                    y0=validated_price,
+                    y1=validated_price,
+                    line=dict(color="#fbbf24", width=3, dash="dot"),
                     layer="above"
                 )
-                
+
+                # Position label just below the bar low, anchored to real price data
                 fig.add_annotation(
                     x=int(b_bar),
-                    y=0.02, # Anchor to 2% from the bottom of the chart window
-                    yref="paper", # Use paper coordinates instead of price data
+                    y=bar_low - annot_offset * (1 + i * 0.5),
                     text=f"{b_name}<br>(Bar {b_bar})",
-                    showarrow=False,
-                    yanchor="bottom",
+                    showarrow=True,
+                    arrowhead=0,
+                    arrowwidth=1,
+                    arrowcolor=color,
+                    ay=20,
+                    ax=0,
+                    yanchor="top",
                     font=dict(color=color, size=10, family="Arial"),
-                    bgcolor="rgba(15, 23, 42, 0.8)", # semi-transparent dark bg
+                    bgcolor="rgba(15, 23, 42, 0.8)",
                     bordercolor=color,
                     borderwidth=1,
                     borderpad=2,
