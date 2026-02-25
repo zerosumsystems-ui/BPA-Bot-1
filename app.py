@@ -274,6 +274,33 @@ You MUST return a strict JSON object with exactly these keys:
 
 Return ONLY the JSON object. No markdown, no explanation, no code fences."""
 
+def _get_or_create_cache(client, system_text: str) -> str:
+    """Retrieve existing GenAI context cache or create a new one."""
+    from google.genai import types
+    cache_name = st.session_state.get("gemini_cache_name")
+    
+    if cache_name:
+        try:
+            client.caches.get(name=cache_name)
+            return cache_name
+        except Exception:
+            pass # Invalid or expired cache
+            
+    try:
+        cache = client.caches.create(
+            model="models/gemini-2.5-pro",
+            config=types.CreateCachedContentConfig(
+                system_instruction=system_text,
+                contents=[types.Content(role="user", parts=[types.Part.from_text(text="Respond to charts using the provided encyclopedia rules.")])],
+                ttl="3600s",
+            )
+        )
+        st.session_state["gemini_cache_name"] = cache.name
+        return cache.name
+    except Exception as e:
+        print(f"GenAI Cache creation failed: {e}")
+        return None
+
 
 def analyze_chart(fig: go.Figure) -> dict:
     """Send chart image to Gemini and get a structured analysis."""
@@ -291,30 +318,42 @@ def analyze_chart(fig: go.Figure) -> dict:
             "_error": "GEMINI_API_KEY not set. Set it in the environment or .streamlit/secrets.toml",
         }
 
-    # Convert figure to PNG bytes
-    img_bytes = fig.to_image(format="png", width=1200, height=600, scale=2)
+    # Convert figure to PNG bytes with smaller dimensions for latency optimization
+    img_bytes = fig.to_image(format="png", width=1000, height=500, scale=1.5)
 
     encyclopedia = load_encyclopedia()
     system_text = SYSTEM_PROMPT.format(encyclopedia=encyclopedia if encyclopedia else "(no rules loaded yet)")
 
     try:
+        from google.genai import types
         client = genai.Client(api_key=api_key)
+        cache_name = _get_or_create_cache(client, system_text)
+        
+        if cache_name:
+            config = types.GenerateContentConfig(
+                cached_content=cache_name,
+                temperature=0.2,
+                response_mime_type="application/json",
+            )
+        else:
+            config = types.GenerateContentConfig(
+                system_instruction=system_text,
+                temperature=0.2,
+                response_mime_type="application/json",
+            )
+
         response = client.models.generate_content(
-            model="gemini-3.1-pro-preview",
+            model="gemini-2.5-pro",
             contents=[
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": "Analyze this 5-minute price action chart:"},
-                        {"inline_data": {"mime_type": "image/png", "data": img_bytes}},
-                    ],
-                }
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text="Analyze this 5-minute price action chart:"),
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
+                    ]
+                )
             ],
-            config={
-                "system_instruction": system_text,
-                "temperature": 0.2,
-                "response_mime_type": "application/json",
-            },
+            config=config,
         )
 
         raw = response.text.strip()
@@ -363,7 +402,7 @@ Return ONLY the raw updated markdown file content. Do not include ```markdown fo
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-3.1-pro-preview",
+            model="gemini-2.5-pro",
             contents=prompt,
         )
         
@@ -381,6 +420,14 @@ Return ONLY the raw updated markdown file content. Do not include ```markdown fo
         
         # Clear Streamlit cache so next run loads fresh rules
         load_encyclopedia.clear()
+        
+        # Purge the GenAI context cache so it rebuilds with new rules!
+        if "gemini_cache_name" in st.session_state:
+            try:
+                client.caches.delete(name=st.session_state["gemini_cache_name"])
+            except Exception:
+                pass
+            del st.session_state["gemini_cache_name"]
 
     except Exception as e:
         st.error(f"Failed to auto-update encyclopedia: {e}")
