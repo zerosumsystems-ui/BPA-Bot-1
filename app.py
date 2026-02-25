@@ -751,6 +751,15 @@ def render_training_lab():
     ticker = st.session_state["ticker"]
     df = st.session_state["chart_df"]
 
+    # ── Header Dropdowns ──
+    top_col1, top_col2 = st.columns(2)
+    with top_col1:
+        st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Day Type</h3>", unsafe_allow_html=True)
+        day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS, key=f"day_type_{ticker}", label_visibility="collapsed")
+    with top_col2:
+        st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Market Cycle</h3>", unsafe_allow_html=True)
+        market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS, key=f"market_cycle_{ticker}", label_visibility="collapsed")
+
     # PHASE 1: Build and show the chart IMMEDIATELY (no waiting for Gemini)
     if "chart_fig" not in st.session_state:
         fig = build_chart(df, ticker)
@@ -834,8 +843,6 @@ def render_training_lab():
     # ── Teacher Override Column ──
     with col_form:
         st.subheader("🎓 Teacher's Override")
-        day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS, key=f"day_type_{ticker}")
-        market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS, key=f"market_cycle_{ticker}")
         st.markdown("**Top 5 Setups (Name, Bar #, Price, Order Type):**")
         override_setups = []
         override_bars = []
