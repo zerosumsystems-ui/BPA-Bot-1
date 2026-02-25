@@ -761,17 +761,11 @@ def render_training_lab():
     # ── Setup Header Defaults from Bot Analysis if Available ──
     analysis = st.session_state.get("bot_analysis", {})
     
-    bot_day_type = analysis.get("day_type", "Approve Bot's Guess")
-    try:
-        dt_index = DAY_TYPE_OPTIONS.index(bot_day_type)
-    except ValueError:
-        dt_index = 0
-        
-    bot_market_cycle = analysis.get("market_cycle", "Approve Bot's Guess")
-    try:
-        mc_index = MARKET_CYCLE_OPTIONS.index(bot_market_cycle)
-    except ValueError:
-        mc_index = 0
+    bot_day_type = analysis.get("day_type", "?")
+    bot_market_cycle = analysis.get("market_cycle", "?")
+    
+    dyn_day_opts = [f"Approve Bot's Guess: {bot_day_type}"] + DAY_TYPE_OPTIONS[1:]
+    dyn_cycle_opts = [f"Approve Bot's Guess: {bot_market_cycle}"] + MARKET_CYCLE_OPTIONS[1:]
 
     show_annotations = st.toggle("🔍 Show Bot Setups & Coloring", value=True, key=f"toggle_{ticker}")
 
@@ -779,10 +773,10 @@ def render_training_lab():
     top_col1, top_col2 = st.columns(2)
     with top_col1:
         st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Day Type</h3>", unsafe_allow_html=True)
-        day_type = st.selectbox("Day Type", DAY_TYPE_OPTIONS, index=dt_index, key=f"day_type_{ticker}", label_visibility="collapsed")
+        day_type = st.selectbox("Day Type", dyn_day_opts, index=0, key=f"day_type_{ticker}", label_visibility="collapsed")
     with top_col2:
         st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Market Cycle</h3>", unsafe_allow_html=True)
-        market_cycle = st.selectbox("Market Cycle", MARKET_CYCLE_OPTIONS, index=mc_index, key=f"market_cycle_{ticker}", label_visibility="collapsed")
+        market_cycle = st.selectbox("Market Cycle", dyn_cycle_opts, index=0, key=f"market_cycle_{ticker}", label_visibility="collapsed")
 
     # PHASE 1: Rebuild base chart clean every time to support toggles
     fig = build_chart(df, ticker)
@@ -881,7 +875,9 @@ def render_training_lab():
             st.markdown(f"**Setup {i+1}** *(Bot: {b_name} [{b_order}] @ Bar {b_bar}, ${b_price})*")
             scol1, scol2, scol3, scol4 = st.columns([3, 1, 1, 2])
             with scol1:
-                sel = st.selectbox("Name", SETUP_OPTIONS, key=f"setup_name_{i}_{ticker}")
+                bot_name = b_name if b_name else "?"
+                dyn_setup = [f"Approve Bot: {bot_name}"] + SETUP_OPTIONS[1:]
+                sel = st.selectbox("Name", dyn_setup, key=f"setup_name_{i}_{ticker}")
                 override_setups.append(sel)
             with scol2:
                 br = st.number_input("Bar #", value=int(b_bar) if b_bar else 0, step=1, key=f"setup_bar_{i}_{ticker}")
@@ -890,10 +886,14 @@ def render_training_lab():
                 pr = st.number_input("Price", value=float(b_price) if b_price else 0.0, step=0.1, format="%.2f", key=f"setup_price_{i}_{ticker}")
                 override_prices.append(pr)
             with scol4:
-                ort = st.selectbox("Order Type", ORDER_OPTIONS, key=f"setup_order_{i}_{ticker}")
+                bot_order = b_order if b_order else "?"
+                dyn_order = [f"Approve Bot: {bot_order}"] + ORDER_OPTIONS[1:]
+                ort = st.selectbox("Order Type", dyn_order, key=f"setup_order_{i}_{ticker}")
                 override_orders.append(ort)
 
-        action = st.selectbox("Action", ACTION_OPTIONS, key=f"action_{ticker}")
+        bot_action = analysis.get("action", "?")
+        dyn_action = [f"Approve Bot's Guess: {bot_action}"] + ACTION_OPTIONS[1:]
+        action = st.selectbox("Action", dyn_action, key=f"action_{ticker}")
         notes = st.text_area("Teacher's Notes", placeholder="Why did you override?", key=f"notes_{ticker}")
 
     # ── Handle Buttons ──
@@ -931,15 +931,15 @@ def render_training_lab():
             row["override_action"] = analysis.get("action", "")
             row["teacher_notes"] = notes
         else:  # submit corrections
-            row["override_day_type"] = day_type if day_type != "Approve Bot's Guess" else analysis.get("day_type", "")
-            row["override_market_cycle"] = market_cycle if market_cycle != "Approve Bot's Guess" else analysis.get("market_cycle", "")
+            row["override_day_type"] = day_type if not day_type.startswith("Approve Bot") else analysis.get("day_type", "")
+            row["override_market_cycle"] = market_cycle if not market_cycle.startswith("Approve Bot") else analysis.get("market_cycle", "")
             for i in range(5):
                 obj = bot_setups[i] if i < len(bot_setups) else {}
                 if isinstance(obj, str):
                     obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
                 
                 # If teacher says "Approve", use the bot's guessed name
-                if override_setups[i] == "Approve Bot's Guess":
+                if override_setups[i].startswith("Approve Bot"):
                     row[f"override_setup_{i+1}"] = obj.get("setup_name", "")
                 else:
                     row[f"override_setup_{i+1}"] = override_setups[i]
@@ -947,12 +947,12 @@ def render_training_lab():
                 row[f"override_setup_{i+1}_bar"] = override_bars[i]
                 row[f"override_setup_{i+1}_price"] = override_prices[i]
                 
-                if override_orders[i] == "Approve Bot's Guess":
+                if override_orders[i].startswith("Approve Bot"):
                     row[f"override_setup_{i+1}_order_type"] = obj.get("order_type", "")
                 else:
                     row[f"override_setup_{i+1}_order_type"] = override_orders[i]
 
-            row["override_action"] = action if action != "Approve Bot's Guess" else analysis.get("action", "")
+            row["override_action"] = action if not action.startswith("Approve Bot") else analysis.get("action", "")
             row["teacher_notes"] = notes
 
         # Update Encyclopedia if notes exist
