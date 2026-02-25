@@ -801,18 +801,7 @@ def render_training_lab():
         start_prefetch()
 
     st.plotly_chart(fig, use_container_width=True, key="main_chart")
-    
-    btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
-    with btn_col1:
-        approve = st.button("✅ Approve All", use_container_width=True)
-    with btn_col2:
-        submit = st.button("📝 Submit Corrections", use_container_width=True)
-    with btn_col3:
-        skip = st.button("⏭️ Skip Chart", use_container_width=True)
-    with btn_col4:
-        ban = st.button("🚫 Not Liquid", use_container_width=True)
-        
-    st.markdown("---")
+
 
     col_bot, col_form = st.columns([1, 1], gap="large")
 
