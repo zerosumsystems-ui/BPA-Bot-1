@@ -318,7 +318,7 @@ def _get_or_create_cache(client, system_text: str) -> str:
             
     try:
         cache = client.caches.create(
-            model="models/gemini-2.5-flash",
+            model="models/gemini-2.0-flash",
             config=types.CreateCachedContentConfig(
                 system_instruction=system_text,
                 contents=[types.Content(role="user", parts=[types.Part.from_text(text="Respond to charts using the provided encyclopedia rules.")])],
@@ -355,7 +355,7 @@ def _call_gemini_vision(ticker: str, img_bytes: bytes, system_text: str, api_key
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 contents=[
                     types.Content(
                         role="user",
@@ -401,10 +401,19 @@ def analyze_chart(fig: go.Figure, ticker: str) -> dict:
         }
 
     # Convert figure to PNG bytes with smaller dimensions for latency optimization
-    img_bytes = fig.to_image(format="png", width=1000, height=500, scale=1.5)
+    img_bytes = fig.to_image(format="png", width=800, height=400, scale=1)
 
+    # Use a trimmed encyclopedia for the vision call to reduce token count and latency.
+    # The full encyclopedia (200KB+) causes very slow API calls. Keep the first ~50K chars
+    # which covers the core rules; the full version is still used for encyclopedia updates.
     encyclopedia = load_encyclopedia()
-    system_text = SYSTEM_PROMPT.format(encyclopedia=encyclopedia if encyclopedia else "(no rules loaded yet)")
+    max_chars = 50000
+    if encyclopedia and len(encyclopedia) > max_chars:
+        trimmed = encyclopedia[:max_chars].rsplit("\n", 1)[0]
+        trimmed += "\n\n(... encyclopedia truncated for speed — full version used during updates ...)"
+        system_text = SYSTEM_PROMPT.format(encyclopedia=trimmed)
+    else:
+        system_text = SYSTEM_PROMPT.format(encyclopedia=encyclopedia if encyclopedia else "(no rules loaded yet)")
 
     try:
         return _call_gemini_vision(ticker, img_bytes, system_text, api_key)
@@ -446,7 +455,7 @@ Return ONLY the raw updated markdown file content. Do not include ```markdown fo
         try:
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 contents=prompt,
             )
 
@@ -510,7 +519,7 @@ Al Brooks Rules Context:
 Teacher's Question: {question}"""
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents=[
                 types.Content(
                     role="user",
