@@ -18,6 +18,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
+from algo_engine import analyze_bars
 from google import genai
 
 # ─────────────────────────── CONFIG ──────────────────────────────────────────
@@ -628,8 +629,8 @@ def _add_annotations(fig, df, analysis):
             )
 
 
-def _do_prefetch():
-    """Background: fetch a random ticker, build chart, query Gemini."""
+def _do_prefetch(use_algo: bool = False):
+    """Background: fetch a random ticker, build chart, run analysis."""
     try:
         tickers = get_sp500_tickers()
         random.shuffle(tickers)
@@ -637,7 +638,10 @@ def _do_prefetch():
             df = fetch_chart_data(t)
             if df is not None and len(df) > 30:
                 fig = build_chart(df, t)
-                analysis = analyze_chart(fig, t)
+                if use_algo:
+                    analysis = analyze_bars(df)
+                else:
+                    analysis = analyze_chart(fig, t)
                 return {"ticker": t, "df": df, "fig": fig, "analysis": analysis}
         return {}
     except Exception:
@@ -647,8 +651,9 @@ def _do_prefetch():
 def start_prefetch():
     """Start background prefetch of next chart."""
     if "prefetch_future" not in st.session_state:
+        use_algo = st.session_state.get("analysis_mode", "Algo (Instant)") == "Algo (Instant)"
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(_do_prefetch)
+        future = executor.submit(_do_prefetch, use_algo)
         st.session_state["prefetch_future"] = future
         st.session_state["prefetch_executor"] = executor
 
@@ -681,6 +686,17 @@ def render_sidebar():
         st.metric("📊 Charts Corrected", f"{count} / 100")
         st.progress(min(count / 100, 1.0))
         st.markdown("---")
+
+        # Analysis mode toggle
+        analysis_mode = st.radio(
+            "⚡ Analysis Engine",
+            ["Algo (Instant)", "Gemini (LLM)"],
+            index=0,
+            help="Algo runs locally in ~50ms. Gemini uses the LLM API (5-15s).",
+        )
+        st.session_state["analysis_mode"] = analysis_mode
+        st.markdown("---")
+
         st.markdown(
             "Train a Gemini-powered bot on **Al Brooks' Price Action** by correcting its guesses."
         )
@@ -758,12 +774,19 @@ def render_training_lab():
     fig = build_chart(df, ticker)
 
     if "bot_analysis" not in st.session_state:
-        # Show the clean chart right away with a spinner below
-        st.plotly_chart(fig, use_container_width=True, key="main_chart_loading")
-        with st.spinner("\U0001f916 Bot is analyzing the chart with Gemini..."):
-            analysis = analyze_chart(fig, ticker)
-        st.session_state["bot_analysis"] = analysis
-        st.rerun()
+        use_algo = st.session_state.get("analysis_mode", "Algo (Instant)") == "Algo (Instant)"
+        if use_algo:
+            # ⚡ Fast algo engine — runs on raw OHLC data, no API call
+            analysis = analyze_bars(df)
+            st.session_state["bot_analysis"] = analysis
+            st.rerun()
+        else:
+            # 🤖 Gemini LLM vision — slower but more nuanced
+            st.plotly_chart(fig, use_container_width=True, key="main_chart_loading")
+            with st.spinner("\U0001f916 Bot is analyzing the chart with Gemini..."):
+                analysis = analyze_chart(fig, ticker)
+            st.session_state["bot_analysis"] = analysis
+            st.rerun()
 
     analysis = st.session_state["bot_analysis"]
 
