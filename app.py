@@ -1,6 +1,6 @@
 """
 Human-in-the-Loop Trading Bot Trainer
-Built with Streamlit, yFinance, Plotly, and Gemini.
+Built with Streamlit, Databento, Plotly, and Gemini.
 """
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ import threading
 
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import plotly.graph_objects as go
 from algo_engine import analyze_bars
+from data_source import get_data_source
 from google import genai
 
 # ─────────────────────────── CONFIG ──────────────────────────────────────────
@@ -150,7 +150,7 @@ ORDER_OPTIONS = [
     "Limit",
 ]
 
-# ─────────────────────────── API KEY ─────────────────────────────────────────
+# ─────────────────────────── API KEYS ────────────────────────────────────────
 
 def get_api_key() -> str:
     """Load GEMINI_API_KEY from the environment or Streamlit secrets."""
@@ -164,6 +164,29 @@ def get_api_key() -> str:
     except (FileNotFoundError, KeyError):
         pass
     return ""
+
+
+def get_databento_key() -> str:
+    """Load DATABENTO_API_KEY from the environment or Streamlit secrets."""
+    key = os.environ.get("DATABENTO_API_KEY")
+    if key:
+        return key
+    try:
+        key = st.secrets["DATABENTO_API_KEY"]
+        if key:
+            return key
+    except (FileNotFoundError, KeyError):
+        pass
+    return ""
+
+
+@st.cache_resource
+def _init_data_source():
+    """Initialize the data source once per app session."""
+    source_type = os.environ.get("DATA_SOURCE", "auto")
+    db_key = get_databento_key()
+    return get_data_source(source_type, api_key=db_key)
+
 
 # ─────────────────────────── S&P 500 LIST ────────────────────────────────────
 
@@ -201,16 +224,14 @@ def add_to_do_not_trade(ticker: str):
 
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=100)
 def fetch_chart_data(ticker: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame | None:
-    """Fetch 5-minute OHLCV data for *ticker*. If dates are provided, fetches that specific range."""
+    """Fetch 5-minute OHLCV data for *ticker* using the configured data source (Databento → yFinance fallback)."""
     try:
-        if start_date and end_date:
-            df = yf.download(ticker, start=start_date, end=end_date, interval="5m", progress=False)
-        else:
-            df = yf.download(ticker, period="1d", interval="5m", progress=False)
-            
+        source = _init_data_source()
+        df = source.fetch_historical(ticker, start_date, end_date)
+
         if df is None or df.empty:
             return None
-        # Flatten multi-level columns if present
+        # Flatten multi-level columns if present (yFinance fallback may produce these)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
@@ -703,7 +724,8 @@ def render_sidebar():
             "Train a Gemini-powered bot on **Al Brooks' Price Action** by correcting its guesses."
         )
         st.markdown("---")
-        st.caption("Built with Streamlit · Gemini · yFinance")
+        source = _init_data_source()
+        st.caption(f"Built with Streamlit · Gemini · {source.name()}")
 
 # ─────────────────────────── TRAINING LAB TAB ────────────────────────────────
 
@@ -1109,7 +1131,7 @@ def render_examples():
                 # Parse timestamp to get the trading day
                 try:
                     dt = datetime.datetime.fromisoformat(ts)
-                    # yfinance expects YYYY-MM-DD. To get a single day of intraday data, 
+                    # Data source expects YYYY-MM-DD. To get a single day of intraday data,
                     # start is that day, end is the NEXT day.
                     start_str = dt.strftime("%Y-%m-%d")
                     end_str = (dt + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
@@ -1146,12 +1168,130 @@ def render_examples():
                     st.error(f"Failed to load historical chart: {e}")
 
 
+# ─────────────────────────── LIVE FEED TAB ────────────────────────────────────
+
+def render_live_feed():
+    """Real-time Databento live streaming tab with algo signals."""
+    from live_stream import LiveBarStream
+
+    st.markdown("### 🔴 Live Market Feed")
+    st.markdown("Stream real-time 5-minute bars and get instant algo signals.")
+
+    db_key = get_databento_key()
+    if not db_key:
+        st.warning(
+            "No Databento API key found. Set `DATABENTO_API_KEY` in your environment "
+            "or Streamlit secrets to enable live streaming."
+        )
+        st.info("You can still use the **Training Lab** tab with historical data.")
+        return
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        live_ticker = st.text_input("Ticker", value="AAPL", key="live_ticker").upper().strip()
+    with col2:
+        use_simulated = st.checkbox("Simulated Mode", value=True,
+                                     help="Use fake data for testing outside market hours")
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        start_btn = st.button("▶️ Start", key="live_start")
+        stop_btn = st.button("⏹️ Stop", key="live_stop")
+
+    # Initialize stream state
+    if "live_stream" not in st.session_state:
+        st.session_state["live_stream"] = None
+    if "live_df" not in st.session_state:
+        st.session_state["live_df"] = pd.DataFrame()
+    if "live_analysis" not in st.session_state:
+        st.session_state["live_analysis"] = {}
+
+    stream: LiveBarStream | None = st.session_state.get("live_stream")
+
+    if start_btn and not (stream and stream.is_running):
+        def on_bar(df, analysis):
+            st.session_state["live_df"] = df
+            st.session_state["live_analysis"] = analysis
+
+        stream = LiveBarStream(
+            api_key=db_key,
+            ticker=live_ticker,
+            on_bar=on_bar,
+        )
+        # Use simulated mode if checkbox is on
+        if use_simulated:
+            stream._run = stream._run_simulated
+        stream.start()
+        st.session_state["live_stream"] = stream
+        st.rerun()
+
+    if stop_btn and stream and stream.is_running:
+        stream.stop()
+        st.session_state["live_stream"] = None
+        st.rerun()
+
+    # Status indicator
+    if stream and stream.is_running:
+        st.success(f"🟢 Streaming {live_ticker} — {'simulated' if use_simulated else 'live'} bars")
+    elif stream and stream.error:
+        st.error(f"Stream error: {stream.error}")
+    else:
+        st.info("Press **Start** to begin streaming.")
+
+    # Display chart + signals
+    live_df = st.session_state.get("live_df", pd.DataFrame())
+    live_analysis = st.session_state.get("live_analysis", {})
+
+    if not live_df.empty:
+        fig = build_chart(live_df, live_ticker)
+
+        # Add setup annotations if algo detected any
+        if live_analysis and live_analysis.get("setups"):
+            chart_view = st.session_state.get("chart_view", "All Setups")
+            best_only = chart_view == "Best Setup Only"
+            fig = _add_annotations(fig, live_df, live_analysis, best_only=best_only)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Show latest signals
+        if live_analysis:
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.metric("Day Type", live_analysis.get("day_type", "—"))
+            with col_b:
+                st.metric("Action", live_analysis.get("action", "—"))
+            with col_c:
+                conf = live_analysis.get("confidence", 0)
+                st.metric("Confidence", f"{conf:.0%}" if isinstance(conf, (int, float)) else conf)
+
+            setups = live_analysis.get("setups", [])
+            if setups:
+                st.markdown("**Active Setups:**")
+                for s in setups:
+                    name = s.get("name", "?")
+                    bar = s.get("entry_bar", "?")
+                    price = s.get("entry_price", "?")
+                    order = s.get("order_type", "?")
+                    st.markdown(f"- **{name}** — Bar {bar}, {order} @ {price}")
+
+        # Auto-refresh every 5 seconds while streaming
+        if stream and stream.is_running:
+            time.sleep(5)
+            st.rerun()
+    else:
+        st.markdown("*Waiting for bars...*")
+        if stream and stream.is_running:
+            time.sleep(2)
+            st.rerun()
+
+
 # ─────────────────────────── MAIN ────────────────────────────────────────────
 
 def main():
     render_sidebar()
 
-    tab_train, tab_history, tab_examples = st.tabs(["🧪 Training Lab", "📜 History", "📚 Examples"])
+    tab_train, tab_history, tab_examples, tab_live = st.tabs(
+        ["🧪 Training Lab", "📜 History", "📚 Examples", "🔴 Live Feed"]
+    )
 
     with tab_train:
         render_training_lab()
@@ -1161,6 +1301,9 @@ def main():
 
     with tab_examples:
         render_examples()
+
+    with tab_live:
+        render_live_feed()
 
 
 if __name__ == "__main__":

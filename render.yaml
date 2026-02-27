@@ -16,3 +16,7 @@ services:
         value: "/data"
       - key: GEMINI_API_KEY
         sync: false
+      - key: DATABENTO_API_KEY
+        sync: false
+      - key: DATA_SOURCE
+        value: "auto"
