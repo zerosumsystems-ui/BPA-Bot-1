@@ -287,11 +287,7 @@ def load_encyclopedia() -> str:
 # ─────────────────────────── GEMINI BRAIN ────────────────────────────────────
 
 SYSTEM_PROMPT = """You are an expert day trader trained strictly on Al Brooks' Price Action methodology.
-Analyze the provided 5-minute chart image using ONLY the provided encyclopedia rules.
-Do not use outside trading knowledge.
-
-Encyclopedia rules:
-{encyclopedia}
+Analyze the provided 5-minute chart image using your deep knowledge of Al Brooks' concepts.
 
 You MUST return a strict JSON object with exactly these keys:
   day_type,        If unclear, guess the most likely context. Follow Al Brooks' terminology exactly:
@@ -304,58 +300,22 @@ You MUST return a strict JSON object with exactly these keys:
 
 Return ONLY the JSON object. No markdown, no explanation, no code fences."""
 
-def _get_or_create_cache(client, system_text: str) -> str:
-    """Retrieve existing GenAI context cache or create a new one."""
-    from google.genai import types
-    cache_name = st.session_state.get("gemini_cache_name")
-    
-    if cache_name:
-        try:
-            client.caches.get(name=cache_name)
-            return cache_name
-        except Exception:
-            pass # Invalid or expired cache
-            
-    try:
-        cache = client.caches.create(
-            model="models/gemini-2.0-flash",
-            config=types.CreateCachedContentConfig(
-                system_instruction=system_text,
-                contents=[types.Content(role="user", parts=[types.Part.from_text(text="Respond to charts using the provided encyclopedia rules.")])],
-                ttl="3600s",
-            )
-        )
-        st.session_state["gemini_cache_name"] = cache.name
-        return cache.name
-    except Exception as e:
-        print(f"GenAI Cache creation failed: {e}")
-        return None
-
-
 @st.cache_data(show_spinner=False, max_entries=50)
 def _call_gemini_vision(ticker: str, img_bytes: bytes, system_text: str, api_key: str) -> dict:
     from google.genai import types
     client = genai.Client(api_key=api_key)
-    cache_name = _get_or_create_cache(client, system_text)
 
-    if cache_name:
-        config = types.GenerateContentConfig(
-            cached_content=cache_name,
-            temperature=0.2,
-            response_mime_type="application/json",
-        )
-    else:
-        config = types.GenerateContentConfig(
-            system_instruction=system_text,
-            temperature=0.2,
-            response_mime_type="application/json",
-        )
+    config = types.GenerateContentConfig(
+        system_instruction=system_text,
+        temperature=0.2,
+        response_mime_type="application/json",
+    )
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3.1-pro-preview",
                 contents=[
                     types.Content(
                         role="user",
@@ -381,7 +341,7 @@ def _call_gemini_vision(ticker: str, img_bytes: bytes, system_text: str, api_key
             if is_rate_limit and attempt < max_retries - 1:
                 time.sleep(2 ** (attempt + 1))
                 continue
-            raise  # Re-raise so the caller's error handling kicks in
+            raise
 
 
 def analyze_chart(fig: go.Figure, ticker: str) -> dict:
@@ -403,17 +363,10 @@ def analyze_chart(fig: go.Figure, ticker: str) -> dict:
     # Convert figure to PNG bytes with smaller dimensions for latency optimization
     img_bytes = fig.to_image(format="png", width=800, height=400, scale=1)
 
-    # Use a trimmed encyclopedia for the vision call to reduce token count and latency.
-    # The full encyclopedia (200KB+) causes very slow API calls. Keep the first ~50K chars
-    # which covers the core rules; the full version is still used for encyclopedia updates.
-    encyclopedia = load_encyclopedia()
-    max_chars = 50000
-    if encyclopedia and len(encyclopedia) > max_chars:
-        trimmed = encyclopedia[:max_chars].rsplit("\n", 1)[0]
-        trimmed += "\n\n(... encyclopedia truncated for speed — full version used during updates ...)"
-        system_text = SYSTEM_PROMPT.format(encyclopedia=trimmed)
-    else:
-        system_text = SYSTEM_PROMPT.format(encyclopedia=encyclopedia if encyclopedia else "(no rules loaded yet)")
+    # No encyclopedia in the vision call — Gemini already knows Al Brooks.
+    # This keeps the prompt small (~500 tokens) for fast responses.
+    # The full encyclopedia is only used when updating rules from teacher notes.
+    system_text = SYSTEM_PROMPT
 
     try:
         return _call_gemini_vision(ticker, img_bytes, system_text, api_key)
@@ -455,7 +408,7 @@ Return ONLY the raw updated markdown file content. Do not include ```markdown fo
         try:
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3.1-pro-preview",
                 contents=prompt,
             )
 
@@ -474,13 +427,6 @@ Return ONLY the raw updated markdown file content. Do not include ```markdown fo
             # Clear Streamlit cache so next run loads fresh rules
             load_encyclopedia.clear()
 
-            # Purge the GenAI context cache so it rebuilds with new rules!
-            if "gemini_cache_name" in st.session_state:
-                try:
-                    client.caches.delete(name=st.session_state["gemini_cache_name"])
-                except Exception:
-                    pass
-                del st.session_state["gemini_cache_name"]
             break  # Success — exit retry loop
 
         except Exception as e:
@@ -519,7 +465,7 @@ Al Brooks Rules Context:
 Teacher's Question: {question}"""
 
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-3.1-pro-preview",
             contents=[
                 types.Content(
                     role="user",
