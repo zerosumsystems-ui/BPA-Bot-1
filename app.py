@@ -10,6 +10,7 @@ import json
 import random
 import datetime
 import pathlib
+import time
 import concurrent.futures
 import threading
 
@@ -430,38 +431,47 @@ The human Teacher just corrected a chart and provided these new learning notes:
 TASK: Integrate these notes into the encyclopedia. If it introduces a new rule, add it in the appropriate section. If it corrects an existing rule, modify it. Keep it concise, organized, and strictly focused on Al Brooks terminology.
 Return ONLY the raw updated markdown file content. Do not include ```markdown formatting fences at the start or end. Just the raw text."""
 
-    try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=prompt,
-        )
-        
-        raw = response.text.strip()
-        if raw.startswith("```markdown"):
-            raw = raw.split("\n", 1)[-1]
-        elif raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1]
-        if raw.endswith("```"):
-            raw = raw.rsplit("```", 1)[0]
-        raw = raw.strip()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=prompt,
+            )
 
-        # Save to disk
-        ENCYCLOPEDIA_PATH.write_text(raw, encoding="utf-8")
-        
-        # Clear Streamlit cache so next run loads fresh rules
-        load_encyclopedia.clear()
-        
-        # Purge the GenAI context cache so it rebuilds with new rules!
-        if "gemini_cache_name" in st.session_state:
-            try:
-                client.caches.delete(name=st.session_state["gemini_cache_name"])
-            except Exception:
-                pass
-            del st.session_state["gemini_cache_name"]
+            raw = response.text.strip()
+            if raw.startswith("```markdown"):
+                raw = raw.split("\n", 1)[-1]
+            elif raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            raw = raw.strip()
 
-    except Exception as e:
-        st.error(f"Failed to auto-update encyclopedia: {e}")
+            # Save to disk
+            ENCYCLOPEDIA_PATH.write_text(raw, encoding="utf-8")
+
+            # Clear Streamlit cache so next run loads fresh rules
+            load_encyclopedia.clear()
+
+            # Purge the GenAI context cache so it rebuilds with new rules!
+            if "gemini_cache_name" in st.session_state:
+                try:
+                    client.caches.delete(name=st.session_state["gemini_cache_name"])
+                except Exception:
+                    pass
+                del st.session_state["gemini_cache_name"]
+            break  # Success — exit retry loop
+
+        except Exception as e:
+            is_rate_limit = "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)
+            if is_rate_limit and attempt < max_retries - 1:
+                wait_seconds = 2 ** (attempt + 1)  # 2s, 4s, 8s
+                st.warning(f"Rate limited by Gemini API. Retrying in {wait_seconds}s... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_seconds)
+                continue
+            st.error(f"Failed to auto-update encyclopedia: {e}")
 
 def ask_bot_question(question: str, fig: go.Figure, analysis_json: dict) -> str:
     """Send a specific user question about the current chart to the bot."""
