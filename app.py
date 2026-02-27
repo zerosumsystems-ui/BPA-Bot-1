@@ -318,7 +318,7 @@ def _get_or_create_cache(client, system_text: str) -> str:
             
     try:
         cache = client.caches.create(
-            model="models/gemini-2.5-pro",
+            model="models/gemini-2.5-flash",
             config=types.CreateCachedContentConfig(
                 system_instruction=system_text,
                 contents=[types.Content(role="user", parts=[types.Part.from_text(text="Respond to charts using the provided encyclopedia rules.")])],
@@ -337,7 +337,7 @@ def _call_gemini_vision(ticker: str, img_bytes: bytes, system_text: str, api_key
     from google.genai import types
     client = genai.Client(api_key=api_key)
     cache_name = _get_or_create_cache(client, system_text)
-    
+
     if cache_name:
         config = types.GenerateContentConfig(
             cached_content=cache_name,
@@ -351,27 +351,37 @@ def _call_gemini_vision(ticker: str, img_bytes: bytes, system_text: str, api_key
             response_mime_type="application/json",
         )
 
-    response = client.models.generate_content(
-        model="gemini-2.5-pro",
-        contents=[
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text="Analyze this 5-minute price action chart:"),
-                    types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
-                ]
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(text="Analyze this 5-minute price action chart:"),
+                            types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
+                        ]
+                    )
+                ],
+                config=config,
             )
-        ],
-        config=config,
-    )
 
-    raw = response.text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[-1]
-    if raw.endswith("```"):
-        raw = raw.rsplit("```", 1)[0]
-    raw = raw.strip()
-    return json.loads(raw)
+            raw = response.text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            raw = raw.strip()
+            return json.loads(raw)
+
+        except Exception as e:
+            is_rate_limit = "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)
+            if is_rate_limit and attempt < max_retries - 1:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            raise  # Re-raise so the caller's error handling kicks in
 
 
 def analyze_chart(fig: go.Figure, ticker: str) -> dict:
@@ -436,7 +446,7 @@ Return ONLY the raw updated markdown file content. Do not include ```markdown fo
         try:
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-2.5-flash",
                 contents=prompt,
             )
 
@@ -500,7 +510,7 @@ Al Brooks Rules Context:
 Teacher's Question: {question}"""
 
         response = client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-2.5-flash",
             contents=[
                 types.Content(
                     role="user",
