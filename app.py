@@ -530,9 +530,11 @@ def load_new_chart():
     st.error("Could not fetch data for any ticker. Please try again.")
 
 
-def _add_annotations(fig, df, analysis):
+def _add_annotations(fig, df, analysis, best_only=False):
     """Add setup marker annotations to a chart figure."""
     bot_setups = analysis.get("setups", [])
+    if best_only:
+        bot_setups = bot_setups[:1]  # Only show the #1 setup
     price_min = df["Low"].min()
     price_max = df["High"].max()
     price_range = price_max - price_min
@@ -759,7 +761,45 @@ def render_training_lab():
     dyn_day_opts = [f"Approve Bot's Guess: {bot_day_type}"] + DAY_TYPE_OPTIONS[1:]
     dyn_cycle_opts = [f"Approve Bot's Guess: {bot_market_cycle}"] + MARKET_CYCLE_OPTIONS[1:]
 
-    show_annotations = st.toggle("🔍 Show Bot Setups & Coloring", value=True, key=f"toggle_{ticker}")
+    # Bot's Reasoning
+    bot_reasoning = analysis.get("reasoning", "")
+    if bot_reasoning:
+        st.markdown(
+            f"<div style='background-color: #fce4c0; padding: 12px 16px; border-radius: 8px; margin: 8px 0;'>"
+            f"<strong>Bot's Reasoning:</strong> {bot_reasoning}</div>",
+            unsafe_allow_html=True,
+        )
+
+    # Chart View toggle
+    chart_view = st.radio(
+        "Chart View",
+        ["Best Setup Only", "All Setups", "Hidden"],
+        horizontal=True,
+        index=0,
+        key=f"chart_view_{ticker}",
+    )
+    show_annotations = chart_view != "Hidden"
+
+    # Select Best Trade of the Day
+    bot_setups_list = analysis.get("setups", [])
+    setup_labels = []
+    for i, s in enumerate(bot_setups_list):
+        if isinstance(s, str):
+            setup_labels.append(f"{i+1}: {s}")
+        else:
+            sname = s.get("setup_name", "Unknown")
+            sbar = s.get("entry_bar", "?")
+            setup_labels.append(f"{i+1}: {sname} (Bar {sbar})")
+    if not setup_labels:
+        setup_labels = ["No setups detected"]
+
+    best_col, name_col = st.columns(2)
+    with best_col:
+        st.markdown("**Select Best Trade of the Day**")
+        best_trade = st.selectbox("Select Best Trade of the Day", setup_labels, index=0, key=f"best_trade_{ticker}", label_visibility="collapsed")
+    with name_col:
+        st.markdown("**Type Best Setup Name (if bot was wrong)**")
+        override_setup_name = st.text_input("Type Best Setup Name (if bot was wrong)", placeholder="e.g., High 2 Bull Flag", key=f"override_name_{ticker}", label_visibility="collapsed")
 
     # ── Header Dropdowns ──
     top_col1, top_col2 = st.columns(2)
@@ -791,7 +831,7 @@ def render_training_lab():
     analysis = st.session_state["bot_analysis"]
 
     if show_annotations:
-        _add_annotations(fig, df, analysis)
+        _add_annotations(fig, df, analysis, best_only=(chart_view == "Best Setup Only"))
 
     # Check/start prefetch for next chart
     check_prefetch()
@@ -801,16 +841,26 @@ def render_training_lab():
     st.plotly_chart(fig, use_container_width=True, key="main_chart")
 
 
+    # ── Action Buttons: Approve / Skip / Illiquid ──
+    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    with btn_col1:
+        approve_btn = st.button("✅ Approve Day", use_container_width=True, type="primary")
+    with btn_col2:
+        skip_btn = st.button("⏭️ Skip", use_container_width=True)
+    with btn_col3:
+        illiquid_btn = st.button("🚫 Illiquid", use_container_width=True)
+
+    # ── Behavioral & Algorithmic Tuning ──
     col_bot, col_form = st.columns([1, 1], gap="large")
 
     # ── Bot Analysis Column ──
     with col_bot:
         st.subheader("💬 Ask the Bot")
-        
+
         # Initialize chat history if missing
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
-            
+
         # Render existing chat
         chat_container = st.container(height=300)
         with chat_container:
@@ -843,27 +893,14 @@ def render_training_lab():
     # ── Teacher Override Column ──
     with col_form:
         st.subheader("🎓 Teacher's Workflow")
-        st.markdown("*To speed up training, you no longer manually edit 20 individual setup dropdowns. Just fix the header dropdowns above, add notes, and choose an action below.*")
-        
+
         bot_action = analysis.get("action", "?")
         dyn_action = [f"Approve Bot's Guess: {bot_action}"] + ACTION_OPTIONS[1:]
         action = st.selectbox("Action", dyn_action, key=f"action_{ticker}")
         notes = st.text_area("Teacher's Notes", placeholder="Why did you override?", key=f"notes_{ticker}", height=100)
-        
-        st.markdown("---")
-        st.markdown("### Submission Action")
-        
-        btn_col1, btn_col2 = st.columns(2)
-        with btn_col1:
-            approve_all = st.button("✅ Approve Everything", use_container_width=True, help="Use the bot's headers AND the bot's setups exactly as-is.")
-            submit_keep_setups = st.button("📝 Keep Setups & Correct Headers", use_container_width=True, help="Use your changed Day/Cycle dropdowns, but KEEP the bot's setups.")
-            skip = st.button("⏭️ Skip Chart", use_container_width=True)
-        with btn_col2:
-            submit_discard_setups = st.button("🗑️ Discard Setups & Correct Headers", use_container_width=True, help="Use your changed Day/Cycle dropdowns, but THROW AWAY all setups.")
-            ban = st.button("🚫 Not Liquid", use_container_width=True)
-            
+
     # ── Handle Buttons ──
-    if approve_all or submit_keep_setups or submit_discard_setups:
+    if approve_btn:
         row = {
             "timestamp": datetime.datetime.now().isoformat(),
             "ticker": ticker,
@@ -872,7 +909,7 @@ def render_training_lab():
             "bot_action": analysis.get("action", ""),
             "bot_confidence": analysis.get("confidence", ""),
         }
-        
+
         bot_setups = analysis.get("setups", [])
         for i in range(5):
             obj = bot_setups[i] if i < len(bot_setups) else {}
@@ -883,9 +920,14 @@ def render_training_lab():
             row[f"bot_setup_{i+1}_price"] = obj.get("entry_price", 0.0)
             row[f"bot_setup_{i+1}_order_type"] = obj.get("order_type", "")
 
-        if approve_all:
-            row["override_day_type"] = analysis.get("day_type", "")
-            row["override_market_cycle"] = analysis.get("market_cycle", "")
+        # Use overrides if teacher changed them, otherwise use bot's guess
+        row["override_day_type"] = day_type if not str(day_type).startswith("Approve Bot") else analysis.get("day_type", "")
+        row["override_market_cycle"] = market_cycle if not str(market_cycle).startswith("Approve Bot") else analysis.get("market_cycle", "")
+
+        # If teacher typed a custom setup name, use that for override_setup_1
+        if override_setup_name.strip():
+            row["override_setup_1"] = override_setup_name.strip()
+        else:
             for i in range(5):
                 obj = bot_setups[i] if i < len(bot_setups) else {}
                 if isinstance(obj, str):
@@ -894,46 +936,23 @@ def render_training_lab():
                 row[f"override_setup_{i+1}_bar"] = obj.get("entry_bar", 0)
                 row[f"override_setup_{i+1}_price"] = obj.get("entry_price", 0.0)
                 row[f"override_setup_{i+1}_order_type"] = obj.get("order_type", "")
-            row["override_action"] = analysis.get("action", "")
-            row["teacher_notes"] = notes
-        elif submit_keep_setups: 
-            row["override_day_type"] = day_type if not str(day_type).startswith("Approve Bot") else analysis.get("day_type", "")
-            row["override_market_cycle"] = market_cycle if not str(market_cycle).startswith("Approve Bot") else analysis.get("market_cycle", "")
-            for i in range(5):
-                obj = bot_setups[i] if i < len(bot_setups) else {}
-                if isinstance(obj, str):
-                    obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
-                row[f"override_setup_{i+1}"] = obj.get("setup_name", "")
-                row[f"override_setup_{i+1}_bar"] = obj.get("entry_bar", 0)
-                row[f"override_setup_{i+1}_price"] = obj.get("entry_price", 0.0)
-                row[f"override_setup_{i+1}_order_type"] = obj.get("order_type", "")
-            row["override_action"] = action if not str(action).startswith("Approve Bot") else analysis.get("action", "")
-            row["teacher_notes"] = notes
-        elif submit_discard_setups:
-            row["override_day_type"] = day_type if not str(day_type).startswith("Approve Bot") else analysis.get("day_type", "")
-            row["override_market_cycle"] = market_cycle if not str(market_cycle).startswith("Approve Bot") else analysis.get("market_cycle", "")
-            for i in range(5):
-                row[f"override_setup_{i+1}"] = ""
-                row[f"override_setup_{i+1}_bar"] = 0
-                row[f"override_setup_{i+1}_price"] = 0.0
-                row[f"override_setup_{i+1}_order_type"] = ""
-            row["override_action"] = action if not str(action).startswith("Approve Bot") else analysis.get("action", "")
-            row["teacher_notes"] = notes
+
+        row["override_action"] = action if not str(action).startswith("Approve Bot") else analysis.get("action", "")
+        row["teacher_notes"] = notes
 
         # Update Encyclopedia if notes exist
         if notes.strip():
-            with st.spinner("🧠 Teaching Bot... Updating Encyclopedia with your notes."):
+            with st.spinner("Teaching Bot... Updating Encyclopedia with your notes."):
                 update_encyclopedia(notes.strip())
             st.toast("Encyclopedia permanently updated!", icon="✅")
 
         save_row(row)
-        # Clear session state to force new chart
         for key in ["ticker", "chart_df", "chart_fig", "bot_analysis", "chat_history"]:
             st.session_state.pop(key, None)
         st.rerun()
 
-    if skip or ban:
-        if ban:
+    if skip_btn or illiquid_btn:
+        if illiquid_btn:
             add_to_do_not_trade(ticker)
             st.toast(f"{ticker} has been permanently excluded from training!", icon="🚫")
         for key in ["ticker", "chart_df", "chart_fig", "bot_analysis", "chat_history"]:

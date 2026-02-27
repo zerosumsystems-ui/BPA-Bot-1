@@ -582,6 +582,72 @@ def classify_market_cycle(bars: list[Bar], ema: list[float]) -> str:
     return "Trading Range"
 
 
+# ─────────────────────────── REASONING GENERATORS ────────────────────────────
+
+def _get_pattern_reason(setup: Setup, bars: list[Bar], ema: list[float]) -> str:
+    """Generate reason 1: why this specific pattern is a good trade."""
+    bar_idx = min(setup.entry_bar - 1, len(bars) - 1)
+    bar = bars[bar_idx]
+    name = setup.setup_name
+
+    if "Bull Flag" in name or "High" in name:
+        if bar.is_strong_bull(np.mean([b.range for b in bars])):
+            return "a strong bull signal bar closing near its high with good follow-through potential"
+        return "representing a pullback buy in a bull trend with a stop entry above the prior bar"
+
+    if "Bear Flag" in name or "Low" in name:
+        if bar.is_strong_bear(np.mean([b.range for b in bars])):
+            return "a strong bear signal bar closing near its low with good follow-through potential"
+        return "representing a pullback sell in a bear trend with a stop entry below the prior bar"
+
+    if "Double Bottom" in name:
+        return "confirming a failed attempt to break lower, creating a strong reversal setup"
+    if "Double Top" in name:
+        return "confirming a failed attempt to break higher, creating a strong reversal setup"
+
+    if "Wedge Bottom" in name:
+        return "completing a 3-push reversal pattern with increasing exhaustion on each push down"
+    if "Wedge Top" in name:
+        return "completing a 3-push reversal pattern with increasing exhaustion on each push up"
+
+    if "Breakout" in name:
+        return "with consecutive strong bars closing near their extremes breaking out of the prior range"
+
+    if "Spike and Channel" in name:
+        return "transitioning from an initial strong spike into a weaker channel continuation"
+
+    if "20-Gap Bar" in name:
+        return "with bars entirely gapping away from the 20 EMA confirming strong trend momentum"
+
+    if "ii" in name or "ioi" in name:
+        return "a tight consolidation pattern signaling a breakout is imminent"
+
+    return f"offering a {setup.confidence:.0%} probability entry at ${setup.entry_price}"
+
+
+def _get_context_reason(bars: list[Bar], ema: list[float], day_type: str) -> str:
+    """Generate reason 2: why the market context supports this trade."""
+    last_bar = bars[-1]
+    avg_range = np.mean([b.range for b in bars])
+
+    # EMA relationship
+    if last_bar.close > ema[-1]:
+        ema_msg = "Price is above the 20 EMA acting as dynamic support"
+    else:
+        ema_msg = "Price is below the 20 EMA acting as dynamic resistance"
+
+    # Trend strength
+    bull_count = sum(1 for b in bars[-10:] if b.is_bull)
+    if bull_count >= 7:
+        trend_msg = "with strong bullish momentum in recent bars"
+    elif bull_count <= 3:
+        trend_msg = "with strong bearish momentum in recent bars"
+    else:
+        trend_msg = "in a mixed/two-sided trading environment"
+
+    return f"{ema_msg}, {trend_msg}."
+
+
 # ─────────────────────────── MAIN ANALYSIS FUNCTION ──────────────────────────
 
 def analyze_bars(df: pd.DataFrame) -> dict:
@@ -637,23 +703,29 @@ def analyze_bars(df: pd.DataFrame) -> dict:
         elif any(kw in best.setup_name for kw in sell_keywords):
             action = "Sell"
 
-    # Build reasoning string
-    reasoning_parts = [f"Day type: {day_type}.", f"Market cycle: {market_cycle}."]
+    # Build reasoning with two specific reasons for the best trade
+    reasoning = ""
     if top_setups:
-        reasoning_parts.append(
-            f"Best setup: {top_setups[0].setup_name} at bar {top_setups[0].entry_bar} "
-            f"(confidence {top_setups[0].confidence:.0%})."
-        )
+        best = top_setups[0]
         last_bar = bars[-1]
-        if last_bar.close > ema[-1]:
-            reasoning_parts.append("Price is above the 20 EMA, bullish bias.")
-        else:
-            reasoning_parts.append("Price is below the 20 EMA, bearish bias.")
+        avg_range = np.mean([b.range for b in bars])
+
+        # Reason 1: pattern-based
+        reason1 = _get_pattern_reason(best, bars, ema)
+        # Reason 2: context-based
+        reason2 = _get_context_reason(bars, ema, day_type)
+
+        reasoning = (
+            f"Bar {best.entry_bar} was a {best.setup_name}, "
+            f"{reason1}. {reason2}"
+        )
+    else:
+        reasoning = f"No high-probability setups detected. Day type: {day_type}, Market cycle: {market_cycle}."
 
     return {
         "day_type": day_type,
         "market_cycle": market_cycle,
-        "reasoning": " ".join(reasoning_parts),
+        "reasoning": reasoning,
         "setups": [
             {
                 "setup_name": s.setup_name,
