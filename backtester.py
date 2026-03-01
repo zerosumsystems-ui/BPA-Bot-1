@@ -652,6 +652,33 @@ def _compute_summary(trades: list[Trade], mode: str) -> dict:
     # Edge ratio: MFE/MAE — how much the market goes for you vs against you
     edge_ratio = avg_mfe / avg_mae if avg_mae > 0 else float("inf")
 
+    # Expectancy per trade (avg_pnl already computed above)
+    expectancy = avg_pnl
+    # Kelly criterion: W - (1-W)/payoff_ratio
+    payoff_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else float("inf")
+    kelly = (win_rate - (1 - win_rate) / payoff_ratio) if payoff_ratio != float("inf") and payoff_ratio > 0 else 0.0
+    # Recovery factor: total_pnl / max_drawdown
+    recovery_factor = total_pnl / max_dd if max_dd > 0 else float("inf")
+    # CPC ratio (Cost Per Contract / reward-to-risk): (win_rate * avg_win) / (loss_rate * abs(avg_loss))
+    loss_rate = 1 - win_rate
+    cpc_ratio = (win_rate * avg_win) / (loss_rate * abs(avg_loss)) if loss_rate > 0 and avg_loss != 0 else float("inf")
+
+    # Direction breakdown
+    longs = [t for t in trades if t.direction == "Long"]
+    shorts = [t for t in trades if t.direction == "Short"]
+    long_stats = {
+        "count": len(longs),
+        "wins": sum(1 for t in longs if t.is_winner),
+        "pnl": round(sum(t.pnl for t in longs), 2),
+        "win_rate": round(sum(1 for t in longs if t.is_winner) / len(longs), 3) if longs else 0.0,
+    }
+    short_stats = {
+        "count": len(shorts),
+        "wins": sum(1 for t in shorts if t.is_winner),
+        "pnl": round(sum(t.pnl for t in shorts), 2),
+        "win_rate": round(sum(1 for t in shorts if t.is_winner) / len(shorts), 3) if shorts else 0.0,
+    }
+
     # Exit reason breakdown
     exit_reasons = {}
     for t in trades:
@@ -718,6 +745,15 @@ def _compute_summary(trades: list[Trade], mode: str) -> dict:
         "avg_mfe_winners": round(avg_mfe_winners, 2),
         "avg_mfe_losers": round(avg_mfe_losers, 2),
         "edge_ratio": round(edge_ratio, 2),
+        "expectancy": round(expectancy, 4),
+        "payoff_ratio": round(payoff_ratio, 2) if payoff_ratio != float("inf") else 999.0,
+        "kelly_pct": round(kelly * 100, 1),
+        "recovery_factor": round(recovery_factor, 2) if recovery_factor != float("inf") else 999.0,
+        "cpc_ratio": round(cpc_ratio, 2) if cpc_ratio != float("inf") else 999.0,
+        "gross_profit": round(gross_profit, 2),
+        "gross_loss": round(gross_loss, 2),
+        "long_stats": long_stats,
+        "short_stats": short_stats,
         "exit_reasons": exit_reasons,
         "setup_stats": setup_stats,
     }
@@ -780,6 +816,15 @@ def _empty_summary() -> dict:
         "avg_mfe_winners": 0.0,
         "avg_mfe_losers": 0.0,
         "edge_ratio": 0.0,
+        "expectancy": 0.0,
+        "payoff_ratio": 0.0,
+        "kelly_pct": 0.0,
+        "recovery_factor": 0.0,
+        "cpc_ratio": 0.0,
+        "gross_profit": 0.0,
+        "gross_loss": 0.0,
+        "long_stats": {"count": 0, "wins": 0, "pnl": 0.0, "win_rate": 0.0},
+        "short_stats": {"count": 0, "wins": 0, "pnl": 0.0, "win_rate": 0.0},
         "exit_reasons": {},
         "setup_stats": {},
     }

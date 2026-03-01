@@ -497,6 +497,370 @@ def render_setup_performance(summary: dict, key_prefix: str = "bt"):
     st.dataframe(perf_df, width="stretch", hide_index=True, key=f"{key_prefix}_setup_perf")
 
 
+def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
+    """Full analytics dashboard for backtest results."""
+    if not trades:
+        return
+
+    s = summary
+
+    # ── Build a DataFrame of trades for grouping ──
+    trade_rows = []
+    for t in trades:
+        entry_dt = t.entry_time[:10] if t.entry_time else ""
+        trade_rows.append({
+            "date": entry_dt,
+            "setup": t.setup_name,
+            "direction": t.direction,
+            "pnl": t.pnl,
+            "r": t.r_multiple,
+            "winner": t.is_winner,
+            "bars_held": t.bars_held,
+            "mae": t.mae,
+            "mfe": t.mfe,
+            "mae_r": t.mae_r,
+            "mfe_r": t.mfe_r,
+            "risk": t.risk_per_share,
+            "entry_price": t.entry_price,
+            "exit_reason": t.exit_reason,
+        })
+    tdf = pd.DataFrame(trade_rows)
+    if tdf["date"].str.len().max() >= 10:
+        tdf["date"] = pd.to_datetime(tdf["date"], errors="coerce")
+        tdf["weekday"] = tdf["date"].dt.day_name()
+        tdf["week"] = tdf["date"].dt.isocalendar().week.astype(int)
+        tdf["month"] = tdf["date"].dt.to_period("M").astype(str)
+        tdf["year"] = tdf["date"].dt.year
+        tdf["year_month"] = tdf["date"].dt.strftime("%Y-%m")
+        has_dates = True
+    else:
+        has_dates = False
+
+    # ══════════════════════════════════════════════════════════
+    # FILTERS
+    # ══════════════════════════════════════════════════════════
+    st.markdown("---")
+    fcol1, fcol2, fcol3 = st.columns(3)
+    with fcol1:
+        all_setups = sorted(tdf["setup"].unique())
+        setup_filter = st.multiselect("Filter by Setup", all_setups, default=[], key=f"{key_prefix}_fsetup")
+    with fcol2:
+        dir_filter = st.selectbox("Direction", ["All", "Long", "Short"], key=f"{key_prefix}_fdir")
+    with fcol3:
+        exit_filter = st.selectbox("Exit Reason", ["All"] + sorted(tdf["exit_reason"].unique().tolist()), key=f"{key_prefix}_fexit")
+
+    # Apply filters
+    filtered = tdf.copy()
+    if setup_filter:
+        filtered = filtered[filtered["setup"].isin(setup_filter)]
+    if dir_filter != "All":
+        filtered = filtered[filtered["direction"] == dir_filter]
+    if exit_filter != "All":
+        filtered = filtered[filtered["exit_reason"] == exit_filter]
+
+    if filtered.empty:
+        st.warning("No trades match the current filters.")
+        return
+
+    n = len(filtered)
+    wins = filtered["winner"].sum()
+    losses = n - wins
+    wr = wins / n if n > 0 else 0
+    tot_pnl = filtered["pnl"].sum()
+    avg_w = filtered.loc[filtered["winner"], "pnl"].mean() if wins > 0 else 0
+    avg_l = filtered.loc[~filtered["winner"], "pnl"].mean() if losses > 0 else 0
+    gp = filtered.loc[filtered["winner"], "pnl"].sum()
+    gl = abs(filtered.loc[~filtered["winner"], "pnl"].sum())
+
+    # ══════════════════════════════════════════════════════════
+    # CORE STATS (filtered)
+    # ══════════════════════════════════════════════════════════
+    st.markdown("**Filtered Stats**" if (setup_filter or dir_filter != "All" or exit_filter != "All") else "**Core Stats**")
+    r1c1, r1c2, r1c3, r1c4, r1c5, r1c6 = st.columns(6)
+    r1c1.metric("Trades", n)
+    r1c2.metric("Win Rate", f"{wr:.1%}")
+    r1c3.metric("Total P&L", f"${tot_pnl:.2f}")
+    r1c4.metric("Expectancy", f"${tot_pnl/n:.2f}" if n > 0 else "$0")
+    r1c5.metric("Profit Factor", f"{gp/gl:.2f}" if gl > 0 else "inf")
+    r1c6.metric("Avg R", f"{filtered['r'].mean():.2f}R" if n > 0 else "0R")
+
+    r2c1, r2c2, r2c3, r2c4, r2c5, r2c6 = st.columns(6)
+    r2c1.metric("Avg Winner", f"${avg_w:.2f}")
+    r2c2.metric("Avg Loser", f"${avg_l:.2f}")
+    payoff = abs(avg_w / avg_l) if avg_l != 0 else 0
+    r2c3.metric("Payoff Ratio", f"{payoff:.2f}")
+    kelly_val = (wr - (1 - wr) / payoff) * 100 if payoff > 0 else 0
+    r2c4.metric("Kelly %", f"{kelly_val:.1f}%")
+    r2c5.metric("Best Trade", f"${filtered['pnl'].max():.2f}")
+    r2c6.metric("Worst Trade", f"${filtered['pnl'].min():.2f}")
+
+    # ══════════════════════════════════════════════════════════
+    # DIRECTION BREAKDOWN
+    # ══════════════════════════════════════════════════════════
+    if dir_filter == "All":
+        ls = s.get("long_stats", {})
+        ss = s.get("short_stats", {})
+        if ls.get("count", 0) > 0 or ss.get("count", 0) > 0:
+            dcol1, dcol2 = st.columns(2)
+            with dcol1:
+                st.markdown("**Longs**")
+                st.caption(f"{ls.get('count',0)} trades | {ls.get('win_rate',0):.0%} WR | ${ls.get('pnl',0):.2f} P&L")
+            with dcol2:
+                st.markdown("**Shorts**")
+                st.caption(f"{ss.get('count',0)} trades | {ss.get('win_rate',0):.0%} WR | ${ss.get('pnl',0):.2f} P&L")
+
+    # ══════════════════════════════════════════════════════════
+    # MAE / MFE
+    # ══════════════════════════════════════════════════════════
+    with st.expander("MAE / MFE Analysis", expanded=False):
+        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+        mc1.metric("Avg MAE", f"${filtered['mae'].mean():.2f}")
+        mc2.metric("Avg MFE", f"${filtered['mfe'].mean():.2f}")
+        mc3.metric("MAE (R)", f"{filtered['mae_r'].mean():.2f}R")
+        mc4.metric("MFE (R)", f"{filtered['mfe_r'].mean():.2f}R")
+        edge = filtered['mfe'].mean() / filtered['mae'].mean() if filtered['mae'].mean() > 0 else 0
+        mc5.metric("Edge Ratio", f"{edge:.2f}")
+
+        # Winners vs Losers MAE/MFE
+        w_trades = filtered[filtered["winner"]]
+        l_trades = filtered[~filtered["winner"]]
+        mc6, mc7, mc8, mc9 = st.columns(4)
+        mc6.metric("Winner Avg MAE", f"${w_trades['mae'].mean():.2f}" if len(w_trades) else "N/A")
+        mc7.metric("Winner Avg MFE", f"${w_trades['mfe'].mean():.2f}" if len(w_trades) else "N/A")
+        mc8.metric("Loser Avg MAE", f"${l_trades['mae'].mean():.2f}" if len(l_trades) else "N/A")
+        mc9.metric("Loser Avg MFE", f"${l_trades['mfe'].mean():.2f}" if len(l_trades) else "N/A")
+
+        # MAE/MFE scatter
+        if len(filtered) > 1:
+            fig_mae = go.Figure()
+            if len(w_trades):
+                fig_mae.add_trace(go.Scatter(
+                    x=w_trades["mae_r"], y=w_trades["mfe_r"],
+                    mode="markers", marker=dict(color="#00C853", size=8, opacity=0.7), name="Winners",
+                ))
+            if len(l_trades):
+                fig_mae.add_trace(go.Scatter(
+                    x=l_trades["mae_r"], y=l_trades["mfe_r"],
+                    mode="markers", marker=dict(color="#FF1744", size=8, opacity=0.7), name="Losers",
+                ))
+            max_v = max(filtered["mae_r"].max(), filtered["mfe_r"].max(), 1) * 1.1
+            fig_mae.add_trace(go.Scatter(x=[0, max_v], y=[0, max_v], mode="lines",
+                                          line=dict(dash="dash", color="gray", width=1), showlegend=False))
+            fig_mae.update_layout(xaxis_title="MAE (R)", yaxis_title="MFE (R)", height=300,
+                                   margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_mae, use_container_width=True, key=f"{key_prefix}_mae_scatter")
+
+        # MAE distribution
+        if len(filtered) > 3:
+            fig_mae_hist = go.Figure()
+            fig_mae_hist.add_trace(go.Histogram(x=filtered["mae_r"], nbinsx=20, name="MAE (R)",
+                                                 marker_color="#FF1744", opacity=0.7))
+            fig_mae_hist.add_trace(go.Histogram(x=filtered["mfe_r"], nbinsx=20, name="MFE (R)",
+                                                 marker_color="#00C853", opacity=0.7))
+            fig_mae_hist.update_layout(barmode="overlay", xaxis_title="R-Multiple", yaxis_title="Count",
+                                        height=250, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_mae_hist, use_container_width=True, key=f"{key_prefix}_mae_hist")
+
+    # ══════════════════════════════════════════════════════════
+    # P&L DISTRIBUTION
+    # ══════════════════════════════════════════════════════════
+    with st.expander("P&L Distribution", expanded=False):
+        if len(filtered) > 3:
+            fig_pnl = go.Figure()
+            fig_pnl.add_trace(go.Histogram(x=filtered["pnl"], nbinsx=30, name="P&L",
+                                            marker_color="#2196F3", opacity=0.8))
+            fig_pnl.add_vline(x=0, line_dash="dash", line_color="gray")
+            fig_pnl.add_vline(x=filtered["pnl"].mean(), line_dash="dot", line_color="#FF9800",
+                               annotation_text=f"Avg: ${filtered['pnl'].mean():.2f}")
+            fig_pnl.update_layout(xaxis_title="P&L ($/share)", yaxis_title="Count",
+                                   height=250, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_pnl, use_container_width=True, key=f"{key_prefix}_pnl_dist")
+
+        # R-multiple distribution
+        if len(filtered) > 3:
+            fig_r = go.Figure()
+            fig_r.add_trace(go.Histogram(x=filtered["r"], nbinsx=30, name="R",
+                                          marker_color="#9C27B0", opacity=0.8))
+            fig_r.add_vline(x=0, line_dash="dash", line_color="gray")
+            fig_r.update_layout(xaxis_title="R-Multiple", yaxis_title="Count",
+                                 height=250, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_r, use_container_width=True, key=f"{key_prefix}_r_dist")
+
+    # ══════════════════════════════════════════════════════════
+    # TIME-BASED BREAKDOWNS (only if we have dates)
+    # ══════════════════════════════════════════════════════════
+    if has_dates and filtered["date"].notna().any():
+
+        with st.expander("Results by Day of Week", expanded=False):
+            dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+            dow = filtered.groupby("weekday").agg(
+                Trades=("pnl", "count"),
+                Wins=("winner", "sum"),
+                PnL=("pnl", "sum"),
+                AvgPnL=("pnl", "mean"),
+                AvgR=("r", "mean"),
+            ).reindex(dow_order).dropna(how="all").reset_index()
+            dow.columns = ["Day", "Trades", "Wins", "P&L", "Avg P&L", "Avg R"]
+            dow["Win %"] = (dow["Wins"] / dow["Trades"] * 100).round(0).astype(int).astype(str) + "%"
+            dow["P&L"] = dow["P&L"].round(2)
+            dow["Avg P&L"] = dow["Avg P&L"].round(2)
+            dow["Avg R"] = dow["Avg R"].round(2)
+            dow["Wins"] = dow["Wins"].astype(int)
+            dow["Trades"] = dow["Trades"].astype(int)
+            st.dataframe(dow[["Day", "Trades", "Wins", "Win %", "P&L", "Avg P&L", "Avg R"]],
+                          width="stretch", hide_index=True, key=f"{key_prefix}_dow")
+
+        with st.expander("Results by Month", expanded=False):
+            monthly = filtered.groupby("year_month").agg(
+                Trades=("pnl", "count"),
+                Wins=("winner", "sum"),
+                PnL=("pnl", "sum"),
+                AvgR=("r", "mean"),
+            ).reset_index()
+            monthly.columns = ["Month", "Trades", "Wins", "P&L", "Avg R"]
+            monthly["Win %"] = (monthly["Wins"] / monthly["Trades"] * 100).round(0).astype(int).astype(str) + "%"
+            monthly["P&L"] = monthly["P&L"].round(2)
+            monthly["Avg R"] = monthly["Avg R"].round(2)
+            monthly["Wins"] = monthly["Wins"].astype(int)
+            monthly["Trades"] = monthly["Trades"].astype(int)
+            st.dataframe(monthly[["Month", "Trades", "Wins", "Win %", "P&L", "Avg R"]],
+                          width="stretch", hide_index=True, key=f"{key_prefix}_monthly")
+
+            # Monthly P&L bar chart
+            if len(monthly) > 1:
+                fig_month = go.Figure()
+                colors = ["#00C853" if v >= 0 else "#FF1744" for v in monthly["P&L"]]
+                fig_month.add_trace(go.Bar(x=monthly["Month"], y=monthly["P&L"],
+                                            marker_color=colors, name="P&L"))
+                fig_month.update_layout(xaxis_title="Month", yaxis_title="P&L ($/share)",
+                                         height=250, margin=dict(l=40, r=20, t=10, b=40))
+                st.plotly_chart(fig_month, use_container_width=True, key=f"{key_prefix}_month_chart")
+
+        with st.expander("Results by Year", expanded=False):
+            yearly = filtered.groupby("year").agg(
+                Trades=("pnl", "count"),
+                Wins=("winner", "sum"),
+                PnL=("pnl", "sum"),
+                AvgPnL=("pnl", "mean"),
+                AvgR=("r", "mean"),
+            ).reset_index()
+            yearly.columns = ["Year", "Trades", "Wins", "P&L", "Avg P&L", "Avg R"]
+            yearly["Win %"] = (yearly["Wins"] / yearly["Trades"] * 100).round(0).astype(int).astype(str) + "%"
+            yearly["P&L"] = yearly["P&L"].round(2)
+            yearly["Avg P&L"] = yearly["Avg P&L"].round(2)
+            yearly["Avg R"] = yearly["Avg R"].round(2)
+            yearly["Wins"] = yearly["Wins"].astype(int)
+            yearly["Trades"] = yearly["Trades"].astype(int)
+            st.dataframe(yearly[["Year", "Trades", "Wins", "Win %", "P&L", "Avg P&L", "Avg R"]],
+                          width="stretch", hide_index=True, key=f"{key_prefix}_yearly")
+
+        # ══════════════════════════════════════════════════════════
+        # CALENDAR HEATMAP
+        # ══════════════════════════════════════════════════════════
+        with st.expander("Calendar Heatmap", expanded=False):
+            daily_pnl = filtered.groupby(filtered["date"].dt.date).agg(
+                pnl=("pnl", "sum"),
+                trades=("pnl", "count"),
+                wins=("winner", "sum"),
+            ).reset_index()
+            daily_pnl.columns = ["date", "pnl", "trades", "wins"]
+            daily_pnl["date"] = pd.to_datetime(daily_pnl["date"])
+            daily_pnl["weekday"] = daily_pnl["date"].dt.dayofweek
+            daily_pnl["week"] = daily_pnl["date"].dt.isocalendar().week.astype(int)
+            daily_pnl["year"] = daily_pnl["date"].dt.year
+
+            for yr in sorted(daily_pnl["year"].unique()):
+                yr_data = daily_pnl[daily_pnl["year"] == yr]
+                if yr_data.empty:
+                    continue
+
+                # Create a matrix: rows = weekdays (Mon-Fri), cols = week numbers
+                pivot = yr_data.pivot_table(index="weekday", columns="week", values="pnl", aggfunc="sum")
+                pivot = pivot.reindex(index=range(5))  # Mon=0 to Fri=4
+
+                max_abs = max(abs(pivot.min().min()) if not pivot.empty else 1,
+                              abs(pivot.max().max()) if not pivot.empty else 1, 0.01)
+
+                fig_cal = go.Figure(data=go.Heatmap(
+                    z=pivot.values,
+                    x=[f"W{w}" for w in pivot.columns],
+                    y=["Mon", "Tue", "Wed", "Thu", "Fri"],
+                    colorscale=[[0, "#FF1744"], [0.5, "#ffebd2"], [1, "#00C853"]],
+                    zmid=0, zmin=-max_abs, zmax=max_abs,
+                    text=pivot.values.round(2),
+                    texttemplate="%{text}",
+                    hovertemplate="Week %{x}<br>%{y}<br>P&L: $%{z:.2f}<extra></extra>",
+                    showscale=True,
+                    colorbar=dict(title="P&L"),
+                ))
+                fig_cal.update_layout(
+                    title=f"{yr}", height=200,
+                    margin=dict(l=50, r=20, t=30, b=10),
+                    yaxis=dict(autorange="reversed"),
+                )
+                st.plotly_chart(fig_cal, use_container_width=True, key=f"{key_prefix}_cal_{yr}")
+
+    # ══════════════════════════════════════════════════════════
+    # EXIT REASONS & STREAKS
+    # ══════════════════════════════════════════════════════════
+    with st.expander("Exit Reasons and Streaks", expanded=False):
+        ec1, ec2 = st.columns(2)
+        with ec1:
+            st.markdown("**Exit Reasons**")
+            exit_counts = filtered["exit_reason"].value_counts()
+            for reason, count in exit_counts.items():
+                pct = count / n * 100
+                st.caption(f"{reason.replace('_', ' ').title()}: {count} ({pct:.0f}%)")
+        with ec2:
+            st.markdown("**Streaks**")
+            st.caption(f"Best Win Streak: {s.get('max_win_streak', 0)}")
+            st.caption(f"Worst Loss Streak: {s.get('max_loss_streak', 0)}")
+            st.caption(f"Avg Bars Held: {filtered['bars_held'].mean():.1f}")
+            if has_dates and filtered["date"].notna().any():
+                active_days = filtered["date"].dt.date.nunique()
+                st.caption(f"Active Trading Days: {active_days}")
+                st.caption(f"Trades/Day: {n / active_days:.1f}" if active_days > 0 else "")
+
+    # ══════════════════════════════════════════════════════════
+    # BARS HELD DISTRIBUTION
+    # ══════════════════════════════════════════════════════════
+    with st.expander("Bars Held Distribution", expanded=False):
+        if len(filtered) > 3:
+            fig_bh = go.Figure()
+            w_bh = filtered.loc[filtered["winner"], "bars_held"]
+            l_bh = filtered.loc[~filtered["winner"], "bars_held"]
+            if len(w_bh):
+                fig_bh.add_trace(go.Histogram(x=w_bh, name="Winners",
+                                               marker_color="#00C853", opacity=0.7))
+            if len(l_bh):
+                fig_bh.add_trace(go.Histogram(x=l_bh, name="Losers",
+                                               marker_color="#FF1744", opacity=0.7))
+            fig_bh.update_layout(barmode="overlay", xaxis_title="Bars Held", yaxis_title="Count",
+                                  height=250, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_bh, use_container_width=True, key=f"{key_prefix}_bh_dist")
+
+    # ══════════════════════════════════════════════════════════
+    # CUMULATIVE P&L BY SETUP
+    # ══════════════════════════════════════════════════════════
+    with st.expander("Cumulative P&L by Setup", expanded=False):
+        setup_names = filtered["setup"].unique()
+        if len(setup_names) > 1 and len(setup_names) <= 25:
+            fig_cum = go.Figure()
+            for sname in setup_names:
+                sub = filtered[filtered["setup"] == sname].reset_index(drop=True)
+                cum_pnl = sub["pnl"].cumsum()
+                if len(cum_pnl) >= 2:
+                    fig_cum.add_trace(go.Scatter(
+                        x=list(range(1, len(cum_pnl) + 1)), y=cum_pnl,
+                        mode="lines", name=sname[:40],
+                    ))
+            fig_cum.update_layout(xaxis_title="Trade #", yaxis_title="Cumulative P&L",
+                                   height=350, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_cum, use_container_width=True, key=f"{key_prefix}_cum_setup")
+        elif len(setup_names) > 25:
+            st.caption("Too many setups to chart individually. Use the filter above to narrow down.")
+
+
 # ─────────────────────────── ENCYCLOPEDIA CACHE ──────────────────────────────
 
 @st.cache_data(ttl=None)
@@ -1649,59 +2013,8 @@ def render_backtest():
     # ── Setup Performance ──
     render_setup_performance(s, key_prefix="bt")
 
-    # ── MAE / MFE ──
-    with st.expander("MAE / MFE Analysis", expanded=False):
-        mae_col1, mae_col2, mae_col3, mae_col4, mae_col5 = st.columns(5)
-        mae_col1.metric("Avg MAE", f"${s['avg_mae']:.2f}")
-        mae_col2.metric("Avg MFE", f"${s['avg_mfe']:.2f}")
-        mae_col3.metric("MAE (R)", f"{s['avg_mae_r']:.2f}R")
-        mae_col4.metric("MFE (R)", f"{s['avg_mfe_r']:.2f}R")
-        mae_col5.metric("Edge Ratio", f"{s['edge_ratio']:.2f}")
-
-        if trades:
-            fig_mae = go.Figure()
-            winners = [t for t in trades if t.is_winner]
-            losers = [t for t in trades if not t.is_winner]
-            if winners:
-                fig_mae.add_trace(go.Scatter(
-                    x=[t.mae_r for t in winners], y=[t.mfe_r for t in winners],
-                    mode="markers", marker=dict(color="#00C853", size=10, opacity=0.7), name="Winners",
-                    text=[f"{t.setup_name}<br>${t.pnl:.2f}" for t in winners],
-                    hovertemplate="%{text}<br>MAE: %{x:.1f}R<br>MFE: %{y:.1f}R<extra></extra>",
-                ))
-            if losers:
-                fig_mae.add_trace(go.Scatter(
-                    x=[t.mae_r for t in losers], y=[t.mfe_r for t in losers],
-                    mode="markers", marker=dict(color="#FF1744", size=10, opacity=0.7), name="Losers",
-                    text=[f"{t.setup_name}<br>${t.pnl:.2f}" for t in losers],
-                    hovertemplate="%{text}<br>MAE: %{x:.1f}R<br>MFE: %{y:.1f}R<extra></extra>",
-                ))
-            max_val = max(max((t.mae_r for t in trades), default=1), max((t.mfe_r for t in trades), default=1)) * 1.1
-            fig_mae.add_trace(go.Scatter(x=[0, max_val], y=[0, max_val], mode="lines", line=dict(dash="dash", color="gray", width=1), showlegend=False))
-            fig_mae.update_layout(xaxis_title="MAE (R)", yaxis_title="MFE (R)", height=350, margin=dict(l=40, r=20, t=20, b=40))
-            st.plotly_chart(fig_mae, use_container_width=True)
-
-    # ── Streaks & Exit Reasons ──
-    col_exit, col_streak = st.columns(2)
-    with col_exit:
-        st.markdown("**Exit Reasons**")
-        for reason, count in s["exit_reasons"].items():
-            st.markdown(f"- {reason.replace('_', ' ').title()}: {count}")
-    with col_streak:
-        st.markdown("**Streaks**")
-        st.markdown(f"- Best Win Streak: {s['max_win_streak']}")
-        st.markdown(f"- Worst Loss Streak: {s['max_loss_streak']}")
-
-    # ── Daily breakdown ──
-    if "daily_results" in s:
-        with st.expander("Daily Breakdown", expanded=False):
-            daily_rows = [{
-                "Date": d["date"], "Day Type": d["day_type"],
-                "Setups": d["setups_found"], "Trades": d["trades"],
-                "Winners": d["winners"], "P&L": f"${d['pnl']:.2f}",
-            } for d in s["daily_results"]]
-            if daily_rows:
-                st.dataframe(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
+    # ── Full Analytics ──
+    render_analytics(trades, s, key_prefix="bt")
 
     # ── Trade log (clickable) ──
     st.markdown("**Trade Log** -- select a row to view the chart")
@@ -1902,48 +2215,8 @@ def render_backtest_daily():
     # ── Setup Performance ──
     render_setup_performance(s, key_prefix="dt")
 
-    # ── MAE / MFE ──
-    with st.expander("MAE / MFE Analysis", expanded=False):
-        mae_col1, mae_col2, mae_col3, mae_col4, mae_col5 = st.columns(5)
-        mae_col1.metric("Avg MAE", f"${s['avg_mae']:.2f}")
-        mae_col2.metric("Avg MFE", f"${s['avg_mfe']:.2f}")
-        mae_col3.metric("MAE (R)", f"{s['avg_mae_r']:.2f}R")
-        mae_col4.metric("MFE (R)", f"{s['avg_mfe_r']:.2f}R")
-        mae_col5.metric("Edge Ratio", f"{s['edge_ratio']:.2f}")
-
-        if trades:
-            fig_mae = go.Figure()
-            winners = [t for t in trades if t.is_winner]
-            losers = [t for t in trades if not t.is_winner]
-            if winners:
-                fig_mae.add_trace(go.Scatter(
-                    x=[t.mae_r for t in winners], y=[t.mfe_r for t in winners],
-                    mode="markers", marker=dict(color="#00C853", size=10, opacity=0.7), name="Winners",
-                    text=[f"{t.setup_name}<br>${t.pnl:.2f}" for t in winners],
-                    hovertemplate="%{text}<br>MAE: %{x:.1f}R<br>MFE: %{y:.1f}R<extra></extra>",
-                ))
-            if losers:
-                fig_mae.add_trace(go.Scatter(
-                    x=[t.mae_r for t in losers], y=[t.mfe_r for t in losers],
-                    mode="markers", marker=dict(color="#FF1744", size=10, opacity=0.7), name="Losers",
-                    text=[f"{t.setup_name}<br>${t.pnl:.2f}" for t in losers],
-                    hovertemplate="%{text}<br>MAE: %{x:.1f}R<br>MFE: %{y:.1f}R<extra></extra>",
-                ))
-            max_val = max(max((t.mae_r for t in trades), default=1), max((t.mfe_r for t in trades), default=1)) * 1.1
-            fig_mae.add_trace(go.Scatter(x=[0, max_val], y=[0, max_val], mode="lines", line=dict(dash="dash", color="gray", width=1), showlegend=False))
-            fig_mae.update_layout(xaxis_title="MAE (R)", yaxis_title="MFE (R)", height=350, margin=dict(l=40, r=20, t=20, b=40))
-            st.plotly_chart(fig_mae, use_container_width=True)
-
-    # ── Streaks & Exit Reasons ──
-    col_exit, col_streak = st.columns(2)
-    with col_exit:
-        st.markdown("**Exit Reasons**")
-        for reason, count in s["exit_reasons"].items():
-            st.markdown(f"- {reason.replace('_', ' ').title()}: {count}")
-    with col_streak:
-        st.markdown("**Streaks**")
-        st.markdown(f"- Best Win Streak: {s['max_win_streak']}")
-        st.markdown(f"- Worst Loss Streak: {s['max_loss_streak']}")
+    # ── Full Analytics ──
+    render_analytics(trades, s, key_prefix="dt")
 
     # ── Trade log (clickable) ──
     st.markdown("**Trade Log** -- select a row to view the chart")
