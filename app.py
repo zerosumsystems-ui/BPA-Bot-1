@@ -718,7 +718,11 @@ def _do_prefetch(use_algo: bool = False):
     try:
         tickers = get_sp500_tickers()
         random.shuffle(tickers)
-        for t in tickers:
+        for i, t in enumerate(tickers):
+            if i >= 5:
+                # Prevent hanging the server on API failures/rate limits.
+                # Streamlit waits for non-daemon threads to finish before rendering!
+                return {}
             df = fetch_chart_data_v2(t)
             if df is not None and len(df) > 30:
                 fig = build_chart(df, t)
