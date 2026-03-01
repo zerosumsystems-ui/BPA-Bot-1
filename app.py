@@ -1631,7 +1631,7 @@ def render_setups():
         st.markdown(f"#### {setup_name} - Definition")
         # Try to find it in the encyclopedia
         encyclopedia = load_encyclopedia()
-        lines = encyclopedia.split('\\n')
+        lines = encyclopedia.splitlines()
         capture = False
         definition = []
         for line in lines:
@@ -1639,7 +1639,7 @@ def render_setups():
                 # Loose matching
                 clean_line = line.replace("#", "").replace("*", "").strip().lower()
                 clean_setup = setup_name.lower().strip()
-                if clean_setup in clean_line or clean_line in clean_setup:
+                if clean_setup in clean_line:
                     capture = True
                     continue
                 elif capture:
@@ -1647,7 +1647,7 @@ def render_setups():
             if capture:
                 definition.append(line)
                 
-        def_text = "\\n".join(definition).strip()
+        def_text = "\n".join(definition).strip()
         if def_text:
             st.info(def_text)
         else:
