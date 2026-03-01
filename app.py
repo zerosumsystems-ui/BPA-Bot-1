@@ -1618,16 +1618,6 @@ def render_backtest():
     fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="P&L ($/share)", height=300, margin=dict(l=40, r=20, t=20, b=40))
     st.plotly_chart(fig_eq, use_container_width=True)
 
-    # ── Setup breakdown ──
-    setup_rows = []
-    for name, stats in s["setup_stats"].items():
-        setup_rows.append({
-            "Setup": name, "Trades": stats["count"],
-            "Win Rate": f"{stats['win_rate']:.0%}", "P&L": f"${stats['pnl']:.2f}", "R": f"{stats['total_r']:.1f}R",
-        })
-    if setup_rows:
-        st.dataframe(pd.DataFrame(setup_rows), width="stretch", hide_index=True)
-
     # ── MAE / MFE ──
     with st.expander("MAE / MFE Analysis", expanded=False):
         mae_col1, mae_col2, mae_col3, mae_col4, mae_col5 = st.columns(5)
@@ -1827,16 +1817,6 @@ def render_backtest_daily():
     fig_eq.add_hline(y=0, line_dash="dash", line_color="gray")
     fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="P&L ($/share)", height=300, margin=dict(l=40, r=20, t=20, b=40))
     st.plotly_chart(fig_eq, use_container_width=True)
-
-    # ── Setup breakdown ──
-    setup_rows = []
-    for name, stats in s["setup_stats"].items():
-        setup_rows.append({
-            "Setup": name, "Trades": stats["count"],
-            "Win Rate": f"{stats['win_rate']:.0%}", "P&L": f"${stats['pnl']:.2f}", "R": f"{stats['total_r']:.1f}R",
-        })
-    if setup_rows:
-        st.dataframe(pd.DataFrame(setup_rows), width="stretch", hide_index=True)
 
     # ── MAE / MFE ──
     with st.expander("MAE / MFE Analysis", expanded=False):
