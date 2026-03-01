@@ -78,8 +78,7 @@ NYSE_TICKERS = {
 
 def get_dataset_for_ticker(ticker: str) -> str:
     """Return the Databento dataset for a given ticker."""
-    # Most S&P 500 are on both exchanges; use XNAS.ITCH as default
-    # since it covers Nasdaq-listed + UTP-eligible NYSE stocks
+    # The $199/month Equities plan uses the XNAS.ITCH dataset.
     return "XNAS.ITCH"
 
 
@@ -111,7 +110,7 @@ class DataSource(ABC):
 
 # ─────────────────────────── DATABENTO SOURCE ────────────────────────────────
 
-class DabentoSource(DataSource):
+class DatabentoSource(DataSource):
     """Fetch OHLCV data from Databento."""
 
     def __init__(self, api_key: str):
@@ -128,127 +127,133 @@ class DabentoSource(DataSource):
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
-        try:
-            import databento as db
+        import streamlit as st
 
-            dataset = get_dataset_for_ticker(ticker)
+        dataset = get_dataset_for_ticker(ticker)
 
-            # Default: today's trading day
-            if start_date and end_date:
-                start = start_date
-                end = end_date
-            else:
-                today = datetime.date.today()
-                start = today.isoformat()
-                end = (today + datetime.timedelta(days=1)).isoformat()
+        # Default: trailing 3 days to account for weekends/holidays/delayed free tier
+        if start_date and end_date:
+            start = start_date
+            end = end_date
+        else:
+            today = datetime.date.today()
+            start = (today - datetime.timedelta(days=4)).isoformat()
+            end = today.isoformat() # Queries up to exactly midnight UTC today (yesterday's data complete)
 
-            data = self._client.timeseries.get_range(
-                dataset=dataset,
-                symbols=[ticker],
-                schema="ohlcv-5m",
-                start=start,
-                end=end,
-            )
+        # Try schemas in order of preference
+        schemas_to_try = ["ohlcv-1m", "ohlcv-1s", "ohlcv-1d"]
 
-            df = data.to_df()
-            if df is None or df.empty:
-                logger.warning(f"Databento returned no data for {ticker}")
-                return None
+        for schema in schemas_to_try:
+            try:
+                start_dt = datetime.datetime.fromisoformat(start)
+                end_dt = datetime.datetime.fromisoformat(end)
+                
+                s_str = start_dt.strftime("%Y-%m-%d")
+                e_str = end_dt.strftime("%Y-%m-%d")
+                if s_str == e_str:
+                    e_str = (end_dt + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+                
+                logger.info(f"Databento: trying {dataset}/{schema} for {ticker} ({start} → {end})")
+                
+                try:
+                    # Provide strict ISO-8601 strings with T separator that Databento wants
+                    db_start = f"{s_str}T00:00:00"
+                    db_end = f"{e_str}T00:00:00"
+                    
+                    data = self._client.timeseries.get_range(
+                        dataset=dataset,
+                        symbols=[ticker],
+                        stype_in="raw_symbol",
+                        schema=schema,
+                        start=db_start,
+                        end=db_end,
+                    )
+                except Exception as ex:
+                    err_str = str(ex)
+                    if "data_end_after_available_end" in err_str:
+                        import re
+                        match = re.search(r"available up to '([^']+)'", err_str)
+                        if match:
+                            # Replace space with T to create a perfect ISO string
+                            new_end_str = match.group(1).replace(" ", "T")
+                            logger.info(f"Databento: retrying with max available end {new_end_str}")
+                            data = self._client.timeseries.get_range(
+                                dataset=dataset,
+                                symbols=[ticker],
+                                stype_in="raw_symbol",
+                                schema=schema,
+                                start=db_start,
+                                end=new_end_str,
+                            )
+                        else:
+                            raise
+                    else:
+                        raise
+                        
+                df = data.to_df()
+                
+                if df is None or df.empty:
+                    logger.warning(f"Databento {schema} returned empty for {ticker}")
+                    continue
 
-            # Normalize columns: lowercase → uppercase
-            rename_map = {
-                "open": "Open",
-                "high": "High",
-                "low": "Low",
-                "close": "Close",
-                "volume": "Volume",
-            }
-            df = df.rename(columns=rename_map)
+                # Normalize columns: lowercase → uppercase
+                rename_map = {
+                    "open": "Open",
+                    "high": "High",
+                    "low": "Low",
+                    "close": "Close",
+                    "volume": "Volume",
+                }
+                df = df.rename(columns=rename_map)
 
-            # Keep only the columns we need
-            keep_cols = ["Open", "High", "Low", "Close", "Volume"]
-            available = [c for c in keep_cols if c in df.columns]
-            df = df[available]
+                # Keep only the columns we need
+                keep_cols = ["Open", "High", "Low", "Close", "Volume"]
+                available = [c for c in keep_cols if c in df.columns]
+                df = df[available]
 
-            # Drop any rows with NaN prices
-            df = df.dropna(subset=["Open", "High", "Low", "Close"])
+                # Drop any rows with NaN prices
+                df = df.dropna(subset=["Open", "High", "Low", "Close"])
 
-            if df.empty:
-                return None
+                if df.empty:
+                    continue
 
-            return df
+                # Resample to 5-minute bars if not already daily
+                if schema != "ohlcv-1d":
+                    df = df.resample("5min").agg({
+                        "Open": "first",
+                        "High": "max",
+                        "Low": "min",
+                        "Close": "last",
+                        "Volume": "sum",
+                    }).dropna()
+                    
+                    # Keep only the most recent trading day to prevent chart distortion
+                    if not df.empty:
+                        # Ensure timezone is US/Eastern for RTH filtering
+                        if df.index.tzinfo is None:
+                            df.index = df.index.tz_localize("UTC").tz_convert("US/Eastern")
+                        else:
+                            df.index = df.index.tz_convert("US/Eastern")
+                            
+                        # Filter to Regular Trading Hours (RTH)
+                        df = df.between_time("09:30", "15:59")
+                        
+                        # Extract the most recent single date
+                        if not df.empty:
+                            df["_date"] = df.index.date
+                            last_day = df["_date"].max()
+                            df = df[df["_date"] == last_day].drop(columns=["_date"])
 
-        except Exception as e:
-            logger.error(f"Databento fetch failed for {ticker}: {e}")
-            return None
+                logger.info(f"Databento: got {len(df)} bars via {schema}")
+                return df
 
+            except Exception as e:
+                logger.warning(f"Databento {schema} failed for {ticker}: {e}")
+                continue
 
-# ─────────────────────────── YFINANCE SOURCE ─────────────────────────────────
-
-class YFinanceSource(DataSource):
-    """Fetch OHLCV data from Yahoo Finance (fallback)."""
-
-    def name(self) -> str:
-        return "yFinance"
-
-    def fetch_historical(
-        self,
-        ticker: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-    ) -> Optional[pd.DataFrame]:
-        try:
-            import yfinance as yf
-
-            if start_date and end_date:
-                df = yf.download(ticker, start=start_date, end=end_date,
-                                 interval="5m", progress=False)
-            else:
-                df = yf.download(ticker, period="1d", interval="5m",
-                                 progress=False)
-
-            if df is None or df.empty:
-                return None
-
-            # Flatten multi-level columns if present
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-
-            return df
-
-        except Exception as e:
-            logger.error(f"yFinance fetch failed for {ticker}: {e}")
-            return None
-
-
-# ─────────────────────────── FALLBACK SOURCE ─────────────────────────────────
-
-class FallbackSource(DataSource):
-    """Try primary source, fall back to secondary on failure."""
-
-    def __init__(self, primary: DataSource, fallback: DataSource):
-        self._primary = primary
-        self._fallback = fallback
-
-    def name(self) -> str:
-        return self._primary.name()
-
-    def fetch_historical(
-        self,
-        ticker: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-    ) -> Optional[pd.DataFrame]:
-        df = self._primary.fetch_historical(ticker, start_date, end_date)
-        if df is not None and not df.empty:
-            return df
-
-        logger.warning(
-            f"{self._primary.name()} failed for {ticker}, "
-            f"falling back to {self._fallback.name()}"
-        )
-        return self._fallback.fetch_historical(ticker, start_date, end_date)
-
+        # No fallback to yfinance; Databento is required for full range.
+        logger.error(f"Databento: all schemas failed for {ticker}")
+        return None
 
 # ─────────────────────────── FACTORY ─────────────────────────────────────────
 
@@ -258,26 +263,11 @@ def get_data_source(
 ) -> DataSource:
     """
     Create a data source.
-
-    Args:
-        source_type: "databento", "yfinance", or "auto" (databento with yfinance fallback)
-        api_key: Databento API key. If None, reads from DATABENTO_API_KEY env var.
+    Forces Databento to avoid 60-day limits from yfinance.
     """
-    if source_type == "yfinance":
-        return YFinanceSource()
-
     databento_key = api_key or os.environ.get("DATABENTO_API_KEY", "")
-
-    if source_type == "databento":
-        if not databento_key:
-            logger.warning("No DATABENTO_API_KEY found, using yFinance")
-            return YFinanceSource()
-        return DabentoSource(databento_key)
-
-    # "auto" mode: Databento primary with yFinance fallback
-    if databento_key:
-        return FallbackSource(
-            primary=DabentoSource(databento_key),
-            fallback=YFinanceSource(),
-        )
-    return YFinanceSource()
+    
+    if not databento_key:
+        logger.warning("No Databento API key provided. Add to .streamlit/secrets.toml!")
+        
+    return DatabentoSource(databento_key)

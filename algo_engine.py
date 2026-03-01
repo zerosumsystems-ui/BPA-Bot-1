@@ -12,7 +12,10 @@ Usage:
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Any
+import importlib
+import pkgutil
+from pathlib import Path
 
 # ─────────────────────────── BAR CLASSIFICATION ──────────────────────────────
 
@@ -148,11 +151,31 @@ def find_swing_lows(bars: list[Bar], lookback: int = 3) -> list[int]:
 
 @dataclass
 class Setup:
-    setup_name: str
-    entry_bar: int
-    entry_price: float
-    order_type: str  # "Stop" or "Limit"
+    setup_name: str = ""
+    entry_bar: int = 0
+    entry_price: float = 0.0
+    order_type: str = "Stop"
     confidence: float = 0.5
+    target_price: float = 0.0
+    stop_loss: float = 0.0
+    
+    # Optional kwargs from dynamic user algos
+    setup_type: str = ""
+    direction: int = 1
+    notes: str = ""
+    index: int = 0
+    bar: Any = None
+    
+    def __post_init__(self):
+        # Support legacy / dynamic user algos that pass name as setup_type
+        if self.setup_type and not self.setup_name:
+            self.setup_name = self.setup_type
+        # If user algo passed 'index' but not 'entry_bar'
+        if self.index > 0 and self.entry_bar == 0:
+            self.entry_bar = self.index
+        # Try to infer entry_price if not provided but bar is
+        if self.entry_price == 0.0 and hasattr(self.bar, 'high'):
+            self.entry_price = round(self.bar.high + 0.01, 2) if self.direction == 1 else round(self.bar.low - 0.01, 2)
 
 
 def detect_high_low_flags(bars: list[Bar], ema: list[float]) -> list[Setup]:
@@ -174,50 +197,60 @@ def detect_high_low_flags(bars: list[Bar], ema: list[float]) -> list[Setup]:
     for i in range(2, len(bars)):
         bar = bars[i]
         prev = bars[i - 1]
-        avg_range = np.mean([b.range for b in bars[max(0, i-20):i]]) if i > 0 else bar.range
-
+        
         # Bull flags: price is above EMA (uptrend context)
         if bar.close > ema[i]:
-            # Pullback bar (bear bar or bar with lower low)
-            if prev.is_bear or prev.low < bars[i-2].low:
-                # Next bar breaks above → High N
-                if bar.high > prev.high and bar.is_bull:
-                    bull_count += 1
-                    flag_name = f"High {min(bull_count, 4)} Bull Flag"
-                    conf = 0.45 + (min(bull_count, 2) * 0.1)  # H2 > H1
-                    setups.append(Setup(
-                        setup_name=flag_name,
-                        entry_bar=bar.idx,
-                        entry_price=round(prev.high + 0.01, 2),
-                        order_type="Stop",
-                        confidence=round(conf, 2),
-                    ))
-            else:
-                # Not a pullback → reset or keep counting
-                if bar.is_bull and bar.closes_near_high:
-                    pass  # Trend continuation, don't reset
-                else:
-                    bull_count = 0
+            # Pullback criteria: the prior bar must have made a lower low or been a bear bar
+            is_pullback_bar = prev.is_bear or (prev.low < bars[i-2].low)
+            
+            # Setup Trigger: The current bar breaks above the high of the pullback bar
+            if is_pullback_bar and bar.high > prev.high and bar.is_bull:
+                # To simplify counting, we will classify the depth of the pullback by looking back 5 bars.
+                # If price has been generally going down for a few bars, it's a higher-order flag (H2, H3).
+                num_recent_pullbacks = sum(1 for b in bars[max(0, i-5):i] if b.is_bear or b.low < bars[b.idx-1].low)
+                
+                flag_num = 1
+                if num_recent_pullbacks >= 3:
+                    flag_num = 3
+                elif num_recent_pullbacks >= 1:
+                    flag_num = 2
+                    
+                flag_name = f"High {flag_num} Bull Flag"
+                conf = 0.45 + (flag_num * 0.1) # H2/H3 have higher probability
+                
+                setups.append(Setup(
+                    setup_name=flag_name,
+                    entry_bar=bar.idx,
+                    entry_price=round(prev.high + 0.01, 2),
+                    order_type="Stop",
+                    confidence=round(min(0.85, conf), 2),
+                ))
 
         # Bear flags: price is below EMA (downtrend context)
         if bar.close < ema[i]:
-            if prev.is_bull or prev.high > bars[i-2].high:
-                if bar.low < prev.low and bar.is_bear:
-                    bear_count += 1
-                    flag_name = f"Low {min(bear_count, 4)} Bear Flag"
-                    conf = 0.45 + (min(bear_count, 2) * 0.1)
-                    setups.append(Setup(
-                        setup_name=flag_name,
-                        entry_bar=bar.idx,
-                        entry_price=round(prev.low - 0.01, 2),
-                        order_type="Stop",
-                        confidence=round(conf, 2),
-                    ))
-            else:
-                if bar.is_bear and bar.closes_near_low:
-                    pass
-                else:
-                    bear_count = 0
+            # Pullback criteria: the prior bar must have made a higher high or been a bull bar
+            is_pullback_bar = prev.is_bull or (prev.high > bars[i-2].high)
+            
+            # Setup Trigger: The current bar breaks below the low of the pullback bar
+            if is_pullback_bar and bar.low < prev.low and bar.is_bear:
+                num_recent_pullbacks = sum(1 for b in bars[max(0, i-5):i] if b.is_bull or b.high > bars[b.idx-1].high)
+                
+                flag_num = 1
+                if num_recent_pullbacks >= 3:
+                    flag_num = 3
+                elif num_recent_pullbacks >= 1:
+                    flag_num = 2
+                    
+                flag_name = f"Low {flag_num} Bear Flag"
+                conf = 0.45 + (flag_num * 0.1)
+                
+                setups.append(Setup(
+                    setup_name=flag_name,
+                    entry_bar=bar.idx,
+                    entry_price=round(prev.low - 0.01, 2),
+                    order_type="Stop",
+                    confidence=round(min(0.85, conf), 2),
+                ))
 
     return setups
 
@@ -326,30 +359,41 @@ def detect_breakouts(bars: list[Bar], ema: list[float]) -> list[Setup]:
         if avg_range == 0:
             continue
 
-        # Bull breakout: 2+ consecutive strong bull bars
-        if (bar.is_strong_bull(avg_range) and prev.is_strong_bull(avg_range)):
-            # Confirm it's above recent highs
-            recent_high = max(b.high for b in bars[max(0, i-10):i-1])
-            if bar.close > recent_high and bar.close > ema[i]:
-                setups.append(Setup(
-                    setup_name="Breakout (BO)",
-                    entry_bar=bar.idx,
-                    entry_price=round(bar.close, 2),
-                    order_type="Stop",
-                    confidence=0.65,
-                ))
+        # Bull Breakout: Either a massive single bar, or two consecutive moderately strong bars
+        recent_high = max(b.high for b in bars[max(0, i-10):i-1]) if i >= 10 else max(b.high for b in bars[0:i-1])
+        
+        # 1. Single Massive Bar Breakout
+        single_massive_bull = bar.is_strong_bull(avg_range) and bar.is_big(avg_range) and bar.close > recent_high
+        
+        # 2. Consecutive Strong Bars Breakout
+        consecutive_bulls = bar.is_strong_bull(avg_range) and prev.is_strong_bull(avg_range) and bar.close > recent_high
 
-        # Bear breakout
-        if (bar.is_strong_bear(avg_range) and prev.is_strong_bear(avg_range)):
-            recent_low = min(b.low for b in bars[max(0, i-10):i-1])
-            if bar.close < recent_low and bar.close < ema[i]:
-                setups.append(Setup(
-                    setup_name="Breakout (BO)",
-                    entry_bar=bar.idx,
-                    entry_price=round(bar.close, 2),
-                    order_type="Stop",
-                    confidence=0.65,
-                ))
+        if (single_massive_bull or consecutive_bulls) and bar.close > ema[i]:
+            setups.append(Setup(
+                setup_name="Breakout (BO)",
+                entry_bar=bar.idx,
+                entry_price=round(bar.close, 2),
+                order_type="Stop",  # Often entered at market or stop above the breakout bar
+                confidence=0.65 if consecutive_bulls else 0.55,
+            ))
+
+        # Bear Breakout
+        recent_low = min(b.low for b in bars[max(0, i-10):i-1]) if i >= 10 else min(b.low for b in bars[0:i-1])
+        
+        # 1. Single Massive Bar Breakout
+        single_massive_bear = bar.is_strong_bear(avg_range) and bar.is_big(avg_range) and bar.close < recent_low
+        
+        # 2. Consecutive Strong Bars Breakout
+        consecutive_bears = bar.is_strong_bear(avg_range) and prev.is_strong_bear(avg_range) and bar.close < recent_low
+
+        if (single_massive_bear or consecutive_bears) and bar.close < ema[i]:
+            setups.append(Setup(
+                setup_name="Breakout (BO)",
+                entry_bar=bar.idx,
+                entry_price=round(bar.close, 2),
+                order_type="Stop",
+                confidence=0.65 if consecutive_bears else 0.55,
+            ))
 
     return setups
 
@@ -417,55 +461,83 @@ def detect_ema_gap_bars(bars: list[Bar], ema: list[float]) -> list[Setup]:
     return setups
 
 
-def detect_spike_and_channel(bars: list[Bar], ema: list[float]) -> list[Setup]:
+def detect_opening_reversals_and_spikes(bars: list[Bar], ema: list[float]) -> list[Setup]:
     """
-    Spike and Channel: strong move (spike) followed by a weaker
-    trending channel in the same direction.
+    Opening Reversals and Spikes: High momentum setups occurring in the first 
+    1-12 bars of the day (first hour).
+    - Spike / Opening BO: A massive trend bar breaking out of the opening range.
+    - Opening Reversal: A strong move in one direction that immediately reverses 
+      with equal or greater force in the opposite direction.
     """
     setups = []
-    if len(bars) < 20:
+    if len(bars) < 5:
         return setups
 
-    avg_range = np.mean([b.range for b in bars[:20]])
-    if avg_range == 0:
-        return setups
-
-    # Look for spike in first 15 bars
-    for i in range(3, min(15, len(bars))):
+    # Analyze the first hour of trading (bars 1 through 12 roughly)
+    for i in range(1, min(15, len(bars))):
         bar = bars[i]
-        # Bull spike: big bull bar(s) at the start
-        if bar.is_big(avg_range) and bar.is_bull and bar.closes_near_high:
-            # Check for channel after spike
-            channel_bars = bars[i+1:min(i+20, len(bars))]
-            if len(channel_bars) < 5:
-                continue
-            bull_count = sum(1 for b in channel_bars if b.is_bull)
-            if bull_count > len(channel_bars) * 0.5:
-                # Weaker trend continuing → spike and channel bull
+        prev = bars[i - 1]
+        
+        # Calculate a running average range based on prior days if possible, or just the opening volatility
+        lookback_bars = bars[max(0, i-20):i] if i > 0 else [bar]
+        avg_range = np.mean([b.range for b in lookback_bars]) if lookback_bars else bar.range
+        if avg_range == 0:
+            continue
+
+        # For the first 5 bars, any solid trend bar relative to the open is a spike. 
+        # After bar 5, demand a 1.25x explosive move to classify as a new spike.
+        threshold = 1.0 if i < 5 else 1.25
+        
+        # 1. Opening Breakout / Spike (Bull)
+        # In the first 25 minutes (bars 1-4), the 9:30 bar can have an insanely massive 
+        # range (e.g. $3.00), masking a perfectly valid $1.50 spike on bar 2.
+        # We drop the strict relative size requirement early on if it's a solid trend bar.
+        is_spike_bull = bar.is_strong_bull(avg_range) and (bar.range >= (avg_range * threshold) or (i < 5 and bar.range >= avg_range * 0.5))
+        is_spike_bear = bar.is_strong_bear(avg_range) and (bar.range >= (avg_range * threshold) or (i < 5 and bar.range >= avg_range * 0.5))
+        
+        prev_is_spike_bull = prev.is_strong_bull(avg_range) and (prev.range >= (avg_range * threshold) or (i < 5 and prev.range >= avg_range * 0.5))
+        prev_is_spike_bear = prev.is_strong_bear(avg_range) and (prev.range >= (avg_range * threshold) or (i < 5 and prev.range >= avg_range * 0.5))
+
+        if is_spike_bull:
+            # Check if this spike is reversing a prior immediate bear attempt (Opening Reversal Bull)
+            if prev_is_spike_bear:
                 setups.append(Setup(
-                    setup_name="Spike and Channel Bull",
+                    setup_name="Opening Reversal (Bull)",
+                    entry_bar=bar.idx,
+                    entry_price=round(bar.close, 2), # Enter at market or stop above the reversal bar
+                    order_type="Stop", 
+                    confidence=0.70, # ORs are high probability traps
+                ))
+            else:
+                # Regular Opening Spike / Breakout
+                setups.append(Setup(
+                    setup_name="Spike and Channel Bull", # Keeping legacy name for now to match UI enums
+                    entry_bar=bar.idx,
+                    entry_price=round(bar.close, 2),
+                    order_type="Stop/Market",  # Buy the close of the strong spike
+                    confidence=0.60,
+                ))
+                
+        # 2. Opening Breakout / Spike (Bear)
+        if is_spike_bear:
+            # Check if this spike is reversing a prior immediate bull attempt (Opening Reversal Bear)
+            if prev_is_spike_bull:
+                 setups.append(Setup(
+                    setup_name="Opening Reversal (Bear)",
                     entry_bar=bar.idx,
                     entry_price=round(bar.close, 2),
                     order_type="Stop",
-                    confidence=0.55,
+                    confidence=0.70,
                 ))
-            break  # Only detect once
-
-        # Bear spike
-        if bar.is_big(avg_range) and bar.is_bear and bar.closes_near_low:
-            channel_bars = bars[i+1:min(i+20, len(bars))]
-            if len(channel_bars) < 5:
-                continue
-            bear_count = sum(1 for b in channel_bars if b.is_bear)
-            if bear_count > len(channel_bars) * 0.5:
+            else:
+                # Regular Opening Spike / Breakout
                 setups.append(Setup(
                     setup_name="Spike and Channel Bear",
                     entry_bar=bar.idx,
                     entry_price=round(bar.close, 2),
-                    order_type="Stop",
-                    confidence=0.55,
+                    order_type="Stop/Market",
+                    confidence=0.60,
                 ))
-            break
 
     return setups
 
@@ -648,6 +720,109 @@ def _get_context_reason(bars: list[Bar], ema: list[float], day_type: str) -> str
     return f"{ema_msg}, {trend_msg}."
 
 
+# ─────────────────────────── USER ALGO DISCOVERY ───────────────────────────────
+
+USER_ALGO_FUNCTIONS = []
+
+def load_user_algos():
+    """Dynamically discover and load any algorithm starting with 'detect_' in user_algos/."""
+    global USER_ALGO_FUNCTIONS
+    USER_ALGO_FUNCTIONS.clear()
+    
+    try:
+        # Try to import user_algos; will succeed if run from the same directory
+        import user_algos
+        
+        # Load all modules in the user_algos package
+        path_list = [str(Path(p).resolve()) for p in user_algos.__path__] if hasattr(user_algos, "__path__") else [str(Path(user_algos.__file__).parent.resolve())]
+        for _, name, _ in pkgutil.iter_modules(path_list):
+            module = importlib.import_module(f"user_algos.{name}")
+            
+            # Find all functions starting with "detect_"
+            for attr_name in dir(module):
+                if attr_name.startswith("detect_"):
+                    func = getattr(module, attr_name)
+                    if callable(func):
+                        USER_ALGO_FUNCTIONS.append(func)
+    except Exception as e:
+        print(f"Warning: Failed to load user algorithms: {e}")
+
+# Load them on import
+load_user_algos()
+
+
+# ─────────────────────────── CONTEXTUAL FILTRATION ────────────────────────────
+
+def filter_by_context(setups: list[Setup], day_type: str, market_cycle: str) -> list[Setup]:
+    """
+    Applies Al Brooks' macro rules to reject setups that fight the current environment.
+    """
+    filtered = []
+    
+    # Keywords indicating a setup is a "fade" (counter-trend)
+    fade_keywords = ["Fade", "Top", "Bottom", "Reversal", "Exhaustion", "Test"]
+    
+    # Keywords indicating a setup is a "trend continuation"
+    trend_keywords = ["Flag", "Breakout", "Stairs", "H1", "L1", "Pullback"]
+
+    for s in setups:
+        setup_name = s.setup_type if hasattr(s, 'setup_type') else getattr(s, 'setup_name', '')
+        
+        # RULE 1: Do not fade a Strong Trend / Spike
+        if "Spike" in market_cycle or "Trend" in day_type:
+            if any(k in setup_name for k in fade_keywords):
+                continue # Reject this setup
+                
+        # RULE 2: Do not trade Trend setups in a Tight Trading Range
+        if "Tight" in market_cycle or "Trading Range" in day_type:
+            if any(k in setup_name for k in trend_keywords) and "Major" not in setup_name:
+                continue # Reject this setup (Major Trend Reversals are allowed to form in ranges)
+                
+        # RULE 3: Do not buy Highs / sell Lows in a Broad Trading Range
+        if "Broad Range" in market_cycle:
+            if "Breakout" in setup_name and "Test" not in setup_name:
+                continue # Reject breakouts in ranges (they usually fail)
+                
+        filtered.append(s)
+        
+    return filtered
+
+
+# ─────────────────────────── MARKET PRESSURE ANALYSIS ────────────────────────
+
+def evaluate_market_pressure(bars: list[Bar]) -> str:
+    """
+    Analyzes the last 10 bars to determine who is making money (Stop vs Limit traders).
+    This tells us whether the market is trending or trapping participants in a range.
+    """
+    if len(bars) < 10:
+        return ""
+        
+    recent_bars = bars[-10:]
+    stop_bull_wins = 0
+    limit_bear_wins = 0
+    
+    for i in range(1, len(recent_bars)):
+        curr = recent_bars[i]
+        prev = recent_bars[i-1]
+        
+        # Did Stop Bulls buy the prior bar's high?
+        if curr.high > prev.high:
+            # If the current bar closes near its high or above the entry, Stop Bulls are making money
+            if curr.close >= prev.high + (prev.range * 0.1): 
+                stop_bull_wins += 1
+            # If the current bar violently reverses and closes below its midpoint, Limit Bears are making money fading the high
+            elif curr.close < curr.open and curr.close < curr.low + (curr.range * 0.5):
+                limit_bear_wins += 1
+
+    if stop_bull_wins > limit_bear_wins and stop_bull_wins >= 2:
+        return "Stop Bulls are consistently generating profitable follow-through above prior bars."
+    elif limit_bear_wins > stop_bull_wins and limit_bear_wins >= 2:
+        return "Limit Bears are actively making money by trapping bulls and heavily fading breakouts above prior bars."
+    else:
+        return "Neither side is demonstrating consistent follow-through; market pressure is deadlocked."
+
+
 # ─────────────────────────── MAIN ANALYSIS FUNCTION ──────────────────────────
 
 def analyze_bars(df: pd.DataFrame) -> dict:
@@ -680,15 +855,77 @@ def analyze_bars(df: pd.DataFrame) -> dict:
     all_setups.extend(detect_breakouts(bars, ema))
     all_setups.extend(detect_ii_ioi(bars))
     all_setups.extend(detect_ema_gap_bars(bars, ema))
-    all_setups.extend(detect_spike_and_channel(bars, ema))
+    all_setups.extend(detect_opening_reversals_and_spikes(bars, ema))
 
-    # Sort by confidence, take top 5
-    all_setups.sort(key=lambda s: s.confidence, reverse=True)
-    top_setups = all_setups[:5]
+    # Run User Algos
+    for user_func in USER_ALGO_FUNCTIONS:
+        try:
+            user_setups = user_func(bars, ema)
+            if user_setups:
+                all_setups.extend(user_setups)
+        except Exception as e:
+            print(f"Warning: User algo {user_func.__name__} crashed: {e}")
 
     # Classify day type and market cycle
     day_type = classify_day_type(bars, ema)
     market_cycle = classify_market_cycle(bars, ema)
+
+    # Apply Contextual Filtration
+    all_setups = filter_by_context(all_setups, day_type, market_cycle)
+
+    # --- CONFLUENCE ENGINE: Combine stacking setups ---
+    confluence_map = {}
+    for s in all_setups:
+        eb = s.entry_bar
+        if eb not in confluence_map:
+            confluence_map[eb] = []
+        confluence_map[eb].append(s)
+        
+    combined_setups = []
+    for eb, setups_at_bar in confluence_map.items():
+        if len(setups_at_bar) > 1:
+            # Sort by confidence to get the base
+            sorted_setups = sorted(setups_at_bar, key=lambda x: x.confidence, reverse=True)
+            base = sorted_setups[0]
+            names = sorted(list(set([s.setup_name.replace("Confluence: ", "") for s in sorted_setups])))
+            base.setup_name = "Confluence: " + " + ".join(names)
+            # Boost confidence by 10% per additional setup at the same index
+            base.confidence = min(0.99, base.confidence + (len(sorted_setups) - 1) * 0.10)
+            base.notes = f"Powerful mathematical confluence of {len(sorted_setups)} stacked setups."
+            combined_setups.append(base)
+        else:
+            combined_setups.append(setups_at_bar[0])
+            
+    all_setups = combined_setups
+
+    # Sort by confidence, take all valid filtered setups
+    all_setups.sort(key=lambda s: s.confidence, reverse=True)
+    
+    # --- Time-Based Deduplication ---
+    # Don't show the exact same setup name if it just fired in the last 5 bars
+    final_setups = []
+    seen_names_recent_bars = {} # setup_name -> last_seen_index
+    
+    for s in all_setups:
+        name = s.setup_name
+        idx = s.entry_bar
+        
+        # We also want to skip minor variations of recent setups (e.g. if Breakout BO is in the name)
+        is_spam_spam = False
+        for seen_name, seen_idx in seen_names_recent_bars.items():
+            if (idx - seen_idx) < 3: # In the last 3 bars
+                # If they are mostly the same string (e.g. Breakout in both)
+                if ("Breakout" in name and "Breakout" in seen_name) or name == seen_name:
+                    is_spam_spam = True
+                    # Reset the timer so it continues suppressing consecutive bars
+                    seen_names_recent_bars[seen_name] = idx
+                    break
+        
+        if not is_spam_spam:
+            final_setups.append(s)
+            seen_names_recent_bars[name] = idx
+            
+    top_setups = final_setups
 
     # Determine action from highest-confidence setup
     action = "Wait / No Trade"
@@ -714,10 +951,32 @@ def analyze_bars(df: pd.DataFrame) -> dict:
         reason1 = _get_pattern_reason(best, bars, ema)
         # Reason 2: context-based
         reason2 = _get_context_reason(bars, ema, day_type)
+        # Reason 3: momentum/pressure-based
+        reason3 = evaluate_market_pressure(bars)
+
+        # Comparative Reasoning: Why is this one better than the others?
+        comparative_reasoning = ""
+        if len(top_setups) > 1:
+            runners_up = top_setups[1:4] # Get next 3
+            runner_up_names = [f"Bar {s.entry_bar} {s.setup_name}" for s in runners_up]
+            runner_up_str = ", ".join(runner_up_names)
+            
+            # Formulate the comparison based on confidence delta
+            margin = best.confidence - runners_up[0].confidence
+            if margin >= 0.10:
+                comparative_reasoning = f"This setup was mathematically far superior to alternatives ({runner_up_str}) because it aligned perfectly with the {market_cycle} context, granting it a {margin*100:.0f}% higher probability of follow-through."
+            elif margin > 0:
+                comparative_reasoning = f"This setup narrowly edged out alternatives ({runner_up_str}) due to slightly better structural context and momentum alignment at the entry bar."
+            else:
+               comparative_reasoning = f"This setup tied with other high-probability signals ({runner_up_str}) but was selected as the primary trade due to having the earliest clean entry in the trend."
+        else:
+            comparative_reasoning = "This was the only mathematically viable high-probability setup detected for the entire day."
 
         reasoning = (
-            f"Bar {best.entry_bar} was a {best.setup_name}, "
-            f"{reason1}. {reason2}"
+            f"**🏆 Best Trade of the Day: Bar {best.entry_bar} {best.setup_name} ({best.order_type} Order, {best.confidence:.0%} Conf)**\n\n"
+            f"**Comparative Analysis:**\n{comparative_reasoning}\n\n"
+            f"**Contextual Breakdown:**\n"
+            f"{reason1}. {reason2} {reason3}"
         )
     else:
         reasoning = f"No high-probability setups detected. Day type: {day_type}, Market cycle: {market_cycle}."
@@ -728,12 +987,14 @@ def analyze_bars(df: pd.DataFrame) -> dict:
         "reasoning": reasoning,
         "setups": [
             {
+                "rank": i + 1,
                 "setup_name": s.setup_name,
                 "entry_bar": s.entry_bar,
                 "entry_price": s.entry_price,
                 "order_type": s.order_type,
+                "confidence": s.confidence,
             }
-            for s in top_setups
+            for i, s in enumerate(top_setups)
         ],
         "action": action,
         "confidence": round(overall_conf, 2),

@@ -47,6 +47,16 @@ CSV_COLUMNS = [
     "bot_setup_3", "bot_setup_3_bar", "bot_setup_3_price", "bot_setup_3_order_type",
     "bot_setup_4", "bot_setup_4_bar", "bot_setup_4_price", "bot_setup_4_order_type",
     "bot_setup_5", "bot_setup_5_bar", "bot_setup_5_price", "bot_setup_5_order_type",
+    "bot_setup_6", "bot_setup_6_bar", "bot_setup_6_price", "bot_setup_6_order_type",
+    "bot_setup_7", "bot_setup_7_bar", "bot_setup_7_price", "bot_setup_7_order_type",
+    "bot_setup_8", "bot_setup_8_bar", "bot_setup_8_price", "bot_setup_8_order_type",
+    "bot_setup_9", "bot_setup_9_bar", "bot_setup_9_price", "bot_setup_9_order_type",
+    "bot_setup_10", "bot_setup_10_bar", "bot_setup_10_price", "bot_setup_10_order_type",
+    "bot_setup_11", "bot_setup_11_bar", "bot_setup_11_price", "bot_setup_11_order_type",
+    "bot_setup_12", "bot_setup_12_bar", "bot_setup_12_price", "bot_setup_12_order_type",
+    "bot_setup_13", "bot_setup_13_bar", "bot_setup_13_price", "bot_setup_13_order_type",
+    "bot_setup_14", "bot_setup_14_bar", "bot_setup_14_price", "bot_setup_14_order_type",
+    "bot_setup_15", "bot_setup_15_bar", "bot_setup_15_price", "bot_setup_15_order_type",
     "bot_action", "bot_confidence",
     "override_day_type", "override_market_cycle",
     "override_setup_1", "override_setup_1_bar", "override_setup_1_price", "override_setup_1_order_type",
@@ -54,6 +64,16 @@ CSV_COLUMNS = [
     "override_setup_3", "override_setup_3_bar", "override_setup_3_price", "override_setup_3_order_type",
     "override_setup_4", "override_setup_4_bar", "override_setup_4_price", "override_setup_4_order_type",
     "override_setup_5", "override_setup_5_bar", "override_setup_5_price", "override_setup_5_order_type",
+    "override_setup_6", "override_setup_6_bar", "override_setup_6_price", "override_setup_6_order_type",
+    "override_setup_7", "override_setup_7_bar", "override_setup_7_price", "override_setup_7_order_type",
+    "override_setup_8", "override_setup_8_bar", "override_setup_8_price", "override_setup_8_order_type",
+    "override_setup_9", "override_setup_9_bar", "override_setup_9_price", "override_setup_9_order_type",
+    "override_setup_10", "override_setup_10_bar", "override_setup_10_price", "override_setup_10_order_type",
+    "override_setup_11", "override_setup_11_bar", "override_setup_11_price", "override_setup_11_order_type",
+    "override_setup_12", "override_setup_12_bar", "override_setup_12_price", "override_setup_12_order_type",
+    "override_setup_13", "override_setup_13_bar", "override_setup_13_price", "override_setup_13_order_type",
+    "override_setup_14", "override_setup_14_bar", "override_setup_14_price", "override_setup_14_order_type",
+    "override_setup_15", "override_setup_15_bar", "override_setup_15_price", "override_setup_15_order_type",
     "override_action", "teacher_notes",
 ]
 
@@ -181,8 +201,11 @@ def get_databento_key() -> str:
 
 
 @st.cache_resource
-def _init_data_source():
-    """Initialize the data source once per app session."""
+def _init_data_source_v2():
+    """
+    Initialize the data source once per app session.
+    (Cache invalidated to force Databento loading over yfinance fallback)
+    """
     source_type = os.environ.get("DATA_SOURCE", "auto")
     db_key = get_databento_key()
     return get_data_source(source_type, api_key=db_key)
@@ -223,10 +246,10 @@ def add_to_do_not_trade(ticker: str):
 # ─────────────────────────── DATA FETCHING ───────────────────────────────────
 
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=100)
-def fetch_chart_data(ticker: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame | None:
+def fetch_chart_data_v2(ticker: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame | None:
     """Fetch 5-minute OHLCV data for *ticker* using the configured data source (Databento → yFinance fallback)."""
     try:
-        source = _init_data_source()
+        source = _init_data_source_v2()
         df = source.fetch_historical(ticker, start_date, end_date)
 
         if df is None or df.empty:
@@ -316,7 +339,7 @@ You MUST return a strict JSON object with exactly these keys:
         - Day Types: "Trading Range Day", "Triangle Trading Range Day", "Bull Trend From The Open", "Bear Trend From The Open", "Trending Trading Range Day (Bull)", "Trending Trading Range Day (Bear)", "Small Pullback Bull Trend", "Small Pullback Bear Trend", "Spike and Channel Bull Trend", "Spike and Channel Bear Trend", "Broad Bull Channel", "Broad Bear Channel", "Shrinking Stairs", "Reversal Day (Bull)", "Reversal Day (Bear)", "Crash Day", "Climax Day".]
 - market_cycle: one of ["Breakout (Spike)","Micro Channel","Tight Channel (Small PB Trend)","Broad Bull Channel","Broad Bear Channel","Trading Range"]
 - reasoning: A brief 1-sentence explanation of your overall analysis of the chart.
-- setups: A list of the top 5 BEST setups of the day. Each item in the list MUST be a JSON object with exactly these keys: `{{"setup_name": "...", "entry_bar": 1, "entry_price": 0.00, "order_type": "...", "reason_1": "...", "reason_2": "..."}}`. `setup_name` MUST STRICTLY be one of ["High 1 Bull Flag","High 2 Bull Flag","High 3 Bull Flag","High 4 Bull Flag","Low 1 Bear Flag","Low 2 Bear Flag","Low 3 Bear Flag","Low 4 Bear Flag","Double Bottom","Double Top","Higher Low Double Bottom","Lower Low Double Bottom","Lower High Double Top","Higher High Double Top","Major Trend Reversal (Bull)","Major Trend Reversal (Bear)","Wedge Bottom","Wedge Top","Parabolic Wedge Bottom","Parabolic Wedge Top","Spike and Channel Bull","Spike and Channel Bear","Head & Shoulders Bottom","Head & Shoulders Top","Final Bull Flag","Final Bear Flag","Breakout (BO)","Breakout Test","Failed Breakout (Bull Trap)","Failed Breakout (Bear Trap)","Measuring Gap / Exhaustion Gap","Buy Climax","Sell Climax","Ledge Bottom","Ledge Top","ii Pattern","ioi Pattern","OO Pattern","Opening Reversal (Bull)","Opening Reversal (Bear)","20-Gap Bar Buy","20-Gap Bar Sell","Cup and Handle"]. DO NOT invent or use any other setup names. `entry_bar` is the integer Bar Number of the EXACT bar where the trade triggers and enters the market (NOT the signal bar that setup the trade). Note: The X-axis gridlines are printed in increments of 5 (1, 6, 11, 16, etc), you must count carefully. `order_type` MUST be exactly "Stop" or "Limit", denoting how the entry is executed mechanically. `reason_1` and `reason_2` are two distinct technical reasons justifying why this setup is valid (as Al Brooks requires 2 reasons to take any trade).
+- setups: A list of up to 15 of the BEST setups of the day. Each item in the list MUST be a JSON object with exactly these keys: `{{"setup_name": "...", "entry_bar": 1, "entry_price": 0.00, "order_type": "...", "reason_1": "...", "reason_2": "..."}}`. `setup_name` MUST STRICTLY be one of ["High 1 Bull Flag","High 2 Bull Flag","High 3 Bull Flag","High 4 Bull Flag","Low 1 Bear Flag","Low 2 Bear Flag","Low 3 Bear Flag","Low 4 Bear Flag","Double Bottom","Double Top","Higher Low Double Bottom","Lower Low Double Bottom","Lower High Double Top","Higher High Double Top","Major Trend Reversal (Bull)","Major Trend Reversal (Bear)","Wedge Bottom","Wedge Top","Parabolic Wedge Bottom","Parabolic Wedge Top","Spike and Channel Bull","Spike and Channel Bear","Head & Shoulders Bottom","Head & Shoulders Top","Final Bull Flag","Final Bear Flag","Breakout (BO)","Breakout Test","Failed Breakout (Bull Trap)","Failed Breakout (Bear Trap)","Measuring Gap / Exhaustion Gap","Buy Climax","Sell Climax","Ledge Bottom","Ledge Top","ii Pattern","ioi Pattern","OO Pattern","Opening Reversal (Bull)","Opening Reversal (Bear)","20-Gap Bar Buy","20-Gap Bar Sell","Cup and Handle"]. DO NOT invent or use any other setup names. `entry_bar` is the integer Bar Number of the EXACT bar where the trade triggers and enters the market (NOT the signal bar that setup the trade). Note: The X-axis gridlines are printed in increments of 5 (1, 6, 11, 16, etc), you must count carefully. `order_type` MUST be exactly "Stop" or "Limit", denoting how the entry is executed mechanically. `reason_1` and `reason_2` are two distinct technical reasons justifying why this setup is valid (as Al Brooks requires 2 reasons to take any trade).
 - action: one of ["Buy","Sell","Wait / No Trade"]
 - confidence: a float between 0.0 and 1.0
 
@@ -376,7 +399,7 @@ def analyze_chart(fig: go.Figure, ticker: str) -> dict:
             "reasoning": "No API Key configured.",
             "setups": [
                 {"setup_name": "N/A", "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A", "reason_1": "N/A", "reason_2": "N/A"}
-            ] * 5,
+            ] * 15,
             "action": "N/A",
             "confidence": 0.0,
             "_error": "GEMINI_API_KEY not set. Set it in the environment or .streamlit/secrets.toml",
@@ -399,7 +422,7 @@ def analyze_chart(fig: go.Figure, ticker: str) -> dict:
             "reasoning": "API Request Failed.",
             "setups": [
                 {"setup_name": "Error", "entry_bar": 0, "entry_price": 0.0, "order_type": "Error", "reason_1": "Error", "reason_2": "Error"}
-            ] * 5,
+            ] * 15,
             "action": "Error",
             "confidence": 0.0,
             "_error": str(e),
@@ -543,7 +566,7 @@ def load_new_chart():
     tickers = get_sp500_tickers()
     random.shuffle(tickers)
     for t in tickers:
-        df = fetch_chart_data(t)
+        df = fetch_chart_data_v2(t)
         if df is not None and len(df) > 30:
             st.session_state["ticker"] = t
             st.session_state["chart_df"] = df
@@ -561,7 +584,7 @@ def _add_annotations(fig, df, analysis, best_only=False):
     price_range = price_max - price_min
     annot_offset = price_range * 0.06
 
-    for i in range(5):
+    for i in range(15):
         obj = bot_setups[i] if i < len(bot_setups) else {}
         if isinstance(obj, str):
             obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0}
@@ -569,6 +592,8 @@ def _add_annotations(fig, df, analysis, best_only=False):
         b_name = obj.get("setup_name", "")
         b_bar = obj.get("entry_bar", 0)
         b_price = obj.get("entry_price", 0.0)
+        b_order_type = obj.get("order_type", "") # Extract order type
+        b_conf = obj.get("confidence", 0.0)      # Extract confidence
 
         if b_bar and b_name and b_name != "N/A" and b_name != "Error":
             bar_row = df[df["BarNumber"] == int(b_bar)]
@@ -632,10 +657,22 @@ def _add_annotations(fig, df, analysis, best_only=False):
                 line=dict(color="#fbbf24", width=3, dash="dot"),
                 layer="above"
             )
+            
+            # Build the label text
+            order_label = f" ({b_order_type})" if b_order_type else ""
+            
+            try:
+                conf_val = float(b_conf)
+            except (ValueError, TypeError):
+                conf_val = 0.0
+                
+            conf_str = f" {conf_val:.0%}" if conf_val > 0 else ""
+            label_text = f"#{i+1}: {b_name}{order_label}{conf_str}<br>(Bar {b_bar})"
+            
             fig.add_annotation(
                 x=int(b_bar),
                 y=bar_low - annot_offset * (1 + i * 0.5),
-                text=f"{b_name}<br>(Bar {b_bar})",
+                text=label_text,
                 showarrow=True,
                 arrowhead=0,
                 arrowwidth=1,
@@ -646,11 +683,11 @@ def _add_annotations(fig, df, analysis, best_only=False):
                 font=dict(color=color, size=10, family="Arial"),
                 bgcolor="rgba(15, 23, 42, 0.8)",
                 bordercolor=color,
-                borderwidth=1,
                 borderpad=2,
                 opacity=0.9
             )
 
+    return fig
 
 def _do_prefetch(use_algo: bool = False):
     """Background: fetch a random ticker, build chart, run analysis."""
@@ -658,7 +695,7 @@ def _do_prefetch(use_algo: bool = False):
         tickers = get_sp500_tickers()
         random.shuffle(tickers)
         for t in tickers:
-            df = fetch_chart_data(t)
+            df = fetch_chart_data_v2(t)
             if df is not None and len(df) > 30:
                 fig = build_chart(df, t)
                 if use_algo:
@@ -724,8 +761,32 @@ def render_sidebar():
             "Train a Gemini-powered bot on **Al Brooks' Price Action** by correcting its guesses."
         )
         st.markdown("---")
-        source = _init_data_source()
+        source = _init_data_source_v2()
         st.caption(f"Built with Streamlit · Gemini · {source.name()}")
+        
+        # ── Ask the Bot (Teacher Workflow) ──
+        st.markdown("---")
+        st.subheader("💬 Ask the Bot")
+
+        # Initialize chat history if missing
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []
+
+        # Render existing chat in a smaller container
+        chat_container = st.container(height=250)
+        with chat_container:
+            for msg in st.session_state["chat_history"]:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    
+        # Accept user input
+        user_question = st.chat_input("Ask about this setup...")
+        if user_question:
+            st.session_state["chat_history"].append({"role": "user", "content": user_question})
+            with st.spinner("Thinking..."):
+                response = asyncio.run(chat_about_chart(user_question, st.session_state["ticker"], st.session_state["chart_df"]))
+            st.session_state["chat_history"].append({"role": "assistant", "content": response})
+            st.rerun()
 
 # ─────────────────────────── TRAINING LAB TAB ────────────────────────────────
 
@@ -786,11 +847,8 @@ def render_training_lab():
     # Bot's Reasoning
     bot_reasoning = analysis.get("reasoning", "")
     if bot_reasoning:
-        st.markdown(
-            f"<div style='background-color: #fce4c0; padding: 12px 16px; border-radius: 8px; margin: 8px 0;'>"
-            f"<strong>Bot's Reasoning:</strong> {bot_reasoning}</div>",
-            unsafe_allow_html=True,
-        )
+        with st.expander("🏆 View Bot's Setup Ranking & Reasoning", expanded=False):
+            st.markdown(bot_reasoning)
 
     # Chart View toggle
     chart_view = st.radio(
@@ -866,56 +924,24 @@ def render_training_lab():
     # ── Action Buttons: Approve / Skip / Illiquid ──
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     with btn_col1:
-        approve_btn = st.button("✅ Approve Day", use_container_width=True, type="primary")
+        approve_btn = st.button("✅ Approve Day", width="stretch", type="primary")
     with btn_col2:
-        skip_btn = st.button("⏭️ Skip", use_container_width=True)
+        skip_btn = st.button("⏭️ Skip", width="stretch")
     with btn_col3:
-        illiquid_btn = st.button("🚫 Illiquid", use_container_width=True)
+        illiquid_btn = st.button("🚫 Illiquid", width="stretch")
 
-    # ── Behavioral & Algorithmic Tuning ──
-    col_bot, col_form = st.columns([1, 1], gap="large")
-
-    # ── Bot Analysis Column ──
-    with col_bot:
-        st.subheader("💬 Ask the Bot")
-
-        # Initialize chat history if missing
-        if "chat_history" not in st.session_state:
-            st.session_state["chat_history"] = []
-
-        # Render existing chat
-        chat_container = st.container(height=300)
-        with chat_container:
-            for msg in st.session_state["chat_history"]:
-                with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
-                    
-        # Accept user input
-        user_question = st.chat_input("Ask why it chose a specific signal...")
-        if user_question:
-            # Add user msg to state and render
-            st.session_state["chat_history"].append({"role": "user", "content": user_question})
-            with chat_container:
-                with st.chat_message("user"):
-                    st.markdown(user_question)
-                with st.chat_message("assistant"):
-                    with st.spinner("Thinking..."):
-                        bot_response = ask_bot_question(user_question, fig, analysis)
-                    st.markdown(bot_response)
-            # Save assistant response to state
-            st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
-            
-        st.markdown("---")
+    # ── Teacher Override & JSON Analysis ──
+    col_json, col_teacher = st.columns(2, gap="large")
+    
+    with col_json:
         st.subheader("🤖 Bot's JSON Analysis")
         if "_error" in analysis:
             st.warning(analysis["_error"])
         with st.expander("Raw API JSON Output", expanded=False):
             st.json(analysis)
 
-    # ── Teacher Override Column ──
-    with col_form:
+    with col_teacher:
         st.subheader("🎓 Teacher's Workflow")
-
         bot_action = analysis.get("action", "?")
         dyn_action = [f"Approve Bot's Guess: {bot_action}"] + ACTION_OPTIONS[1:]
         action = st.selectbox("Action", dyn_action, key=f"action_{ticker}")
@@ -933,7 +959,7 @@ def render_training_lab():
         }
 
         bot_setups = analysis.get("setups", [])
-        for i in range(5):
+        for i in range(15):
             obj = bot_setups[i] if i < len(bot_setups) else {}
             if isinstance(obj, str):
                 obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
@@ -950,7 +976,7 @@ def render_training_lab():
         if override_setup_name.strip():
             row["override_setup_1"] = override_setup_name.strip()
         else:
-            for i in range(5):
+            for i in range(15):
                 obj = bot_setups[i] if i < len(bot_setups) else {}
                 if isinstance(obj, str):
                     obj = {"setup_name": obj, "entry_bar": 0, "entry_price": 0.0, "order_type": "N/A"}
@@ -989,7 +1015,7 @@ def render_history():
         st.info("No training data yet. Start correcting charts in the Training Lab!")
         return
 
-    st.dataframe(df, use_container_width=True, height=500)
+    st.dataframe(df, width="stretch", height=500)
 
     st.markdown("---")
     st.subheader("🗑️ Delete a Row")
@@ -1003,7 +1029,7 @@ def render_history():
             step=1,
         )
     with col_btn:
-        if st.button("🗑️ Delete Row", use_container_width=True, type="primary"):
+        if st.button("🗑️ Delete Row", width="stretch", type="primary"):
             delete_row(int(row_idx))
             st.rerun()
 
@@ -1127,7 +1153,7 @@ def render_examples():
                 st.markdown(f"**Teacher\'s Notes:** {notes}")
 
             st.markdown("---")
-            with st.spinner(f"Fetching historical data for {ticker}..."):
+            with st.spinner(f"Fetching intra-day data for {ticker}..."):
                 # Parse timestamp to get the trading day
                 try:
                     dt = datetime.datetime.fromisoformat(ts)
@@ -1135,7 +1161,7 @@ def render_examples():
                     # start is that day, end is the NEXT day.
                     start_str = dt.strftime("%Y-%m-%d")
                     end_str = (dt + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-                    hist_df = fetch_chart_data(ticker, start_date=start_str, end_date=end_str)
+                    hist_df = fetch_chart_data_v2(ticker, start_date=start_str, end_date=end_str)
                     
                     if hist_df is not None and not hist_df.empty:
                         hist_fig = build_chart(hist_df, ticker)
@@ -1170,118 +1196,489 @@ def render_examples():
 
 # ─────────────────────────── LIVE FEED TAB ────────────────────────────────────
 
-def render_live_feed():
-    """Real-time Databento live streaming tab with algo signals."""
-    from live_stream import LiveBarStream
+def render_market_scanner():
+    st.markdown("### 🔎 Market Scanner")
+    st.markdown("Scan a basket of stocks for Al Brooks setups using the fast Python engine.")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        default_tickers = "AAPL, QQQ, TSLA, MSFT, NVDA, SPY"
+        ticker_input = st.text_input("Enter Tickers (comma-separated):", value=default_tickers)
+    with col2:
+        scanner_days = st.number_input("Days Back", min_value=1, max_value=1825, value=5, key="scanner_days")
+    
+    if st.button("🚀 Run Scanner", type="primary"):
+        tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+        if not tickers:
+            st.warning("Please enter at least one ticker.")
+            return
+            
+        import datetime as _dt
+        end = _dt.date.today()
+        calendar_days = int(scanner_days * 1.45) + 1
+        start = end - _dt.timedelta(days=calendar_days)
+        
+        st.session_state["scanner_start"] = start.strftime("%Y-%m-%d")
+        st.session_state["scanner_end"] = end.strftime("%Y-%m-%d")
+            
+        st.info(f"Scanning {len(tickers)} tickers over {scanner_days} days...")
+        results = []
+        
+        progress_bar = st.progress(0)
+        
+        for i, ticker in enumerate(tickers):
+            # Fetch historical data
+            df = fetch_chart_data_v2(ticker, start_date=st.session_state["scanner_start"], end_date=st.session_state["scanner_end"])
+            if df is not None and not df.empty:
+                # Use algo_engine directly
+                from algo_engine import analyze_bars
+                analysis = analyze_bars(df)
+                
+                setups = analysis.get("setups", [])
+                num_setups = len(setups)
+                
+                # Get best setup details
+                best_setup_name = "None"
+                best_setup_bar = "-"
+                best_setup_price = "-"
+                
+                if num_setups > 0:
+                    best = setups[0]
+                    # Handle both dictionary and object formats
+                    if hasattr(best, 'setup_name'):
+                        best_setup_name = best.setup_name
+                        best_setup_bar = best.entry_bar
+                        best_setup_price = best.entry_price
+                    elif isinstance(best, dict):
+                        best_setup_name = best.get("setup_name", "Unknown")
+                        best_setup_bar = best.get("entry_bar", "-")
+                        best_setup_price = best.get("entry_price", "-")
+                    else:
+                        best_setup_name = str(best)
+                
+                results.append({
+                    "Ticker": ticker,
+                    "Setups Found": num_setups,
+                    "Best Setup": best_setup_name,
+                    "Entry Bar": best_setup_bar,
+                    "Entry Price": best_setup_price,
+                    "Day Action": analysis.get("action", "-"),
+                    "Day Type": analysis.get("day_type", "-")
+                })
+            else:
+                results.append({
+                    "Ticker": ticker,
+                    "Setups Found": "Error",
+                    "Best Setup": "Failed to fetch data",
+                    "Entry Bar": "-",
+                    "Entry Price": "-",
+                    "Day Action": "-",
+                    "Day Type": "-"
+                })
+                
+            progress_bar.progress((i + 1) / len(tickers))
+            
+        if results:
+            res_df = pd.DataFrame(results)
+            st.session_state["scanner_results"] = res_df
+            st.success("Scan complete!")
 
-    st.markdown("### 🔴 Live Market Feed")
-    st.markdown("Stream real-time 5-minute bars and get instant algo signals.")
-
-    db_key = get_databento_key()
-    if not db_key:
-        st.warning(
-            "No Databento API key found. Set `DATABENTO_API_KEY` in your environment "
-            "or Streamlit secrets to enable live streaming."
+    if "scanner_results" in st.session_state:
+        st.markdown("---")
+        res_df = st.session_state["scanner_results"]
+        
+        event = st.dataframe(
+            res_df, 
+            width="stretch",
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun"
         )
-        st.info("You can still use the **Training Lab** tab with historical data.")
+        
+        if event.selection.rows:
+            selected_idx = event.selection.rows[0]
+            selected_ticker = res_df.iloc[selected_idx]["Ticker"]
+            st.markdown(f"#### 🔎 Selected: {selected_ticker}")
+            
+            with st.spinner(f"Loading {selected_ticker} chart..."):
+                s_start = st.session_state.get("scanner_start")
+                s_end = st.session_state.get("scanner_end")
+                df = fetch_chart_data_v2(selected_ticker, start_date=s_start, end_date=s_end)
+                if df is not None and not df.empty:
+                    from algo_engine import analyze_bars
+                    analysis = analyze_bars(df)
+                    fig = build_chart(df, selected_ticker)
+                    
+                    if analysis and analysis.get("setups"):
+                        # We use the previous Best Only toggle logic if needed, default to true for scanner
+                        fig = _add_annotations(fig, df, analysis, best_only=True)
+                        
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Also print the specific setup metrics
+                    if analysis:
+                        col_a, col_b, col_c = st.columns(3)
+                        with col_a:
+                            st.metric("Day Type", analysis.get("day_type", "—"))
+                        with col_b:
+                            st.metric("Action", analysis.get("action", "—"))
+                        with col_c:
+                            conf = analysis.get("confidence", 0)
+                            st.metric("Confidence", f"{conf:.0%}" if isinstance(conf, (int, float)) else conf)
+                else:
+                    st.error("Could not fetch chart data for this ticker.")
+
+
+# ─────────────────────────── BACKTEST TAB ─────────────────────────────────────
+
+def render_backtest():
+    """Backtesting tab with full report, equity curve, and trade log."""
+    from backtester import run_backtest, run_multi_day_backtest, trades_to_dataframe, export_trade_log_csv
+
+    st.markdown("### 📊 Backtest")
+    st.markdown("Test the algo engine against historical data with Al Brooks risk management.")
+
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    with col1:
+        bt_ticker = st.text_input("Ticker", value="AAPL", key="bt_ticker").upper().strip()
+    with col2:
+        bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode",
+                                help="Scalp = 1:1 R/R, Swing = 2:1 R/R")
+    with col3:
+        bt_days = st.number_input("Days Back", min_value=1, max_value=1825, value=5, key="bt_days",
+                                   help="Number of trading days to backtest")
+    with col4:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_col1, run_col2 = st.columns(2)
+        with run_col1:
+            run_btn = st.button("▶️ Backtest", key="bt_run", type="primary")
+        with run_col2:
+            clear_btn = st.button("🗑️ Clear", key="bt_clear")
+            if clear_btn:
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.success("App Cache Cleared!")
+
+    if run_btn:
+        with st.spinner(f"Backtesting {bt_ticker} over {bt_days} days ({bt_mode} mode)..."):
+            # Fetch multi-day data
+            source = _init_data_source_v2()
+            import datetime as _dt
+            end = _dt.date.today()
+            # ~1.45x buffer accounts for weekends/holidays
+            calendar_days = int(bt_days * 1.45) + 1
+            start = end - _dt.timedelta(days=calendar_days)
+
+            st.caption(f"Data source: **{source.name()}** | Range: {start} → {end} ({calendar_days} calendar days)")
+
+            try:
+                full_df = source.fetch_historical(
+                    bt_ticker,
+                    start.strftime("%Y-%m-%d"),
+                    end.strftime("%Y-%m-%d"),
+                )
+            except Exception as e:
+                st.error(f"Failed to fetch data: {e}")
+                return
+
+            if full_df is None or full_df.empty:
+                st.warning(f"No data returned for {bt_ticker} from {source.name()}. Range: {start} → {end}")
+                db_key = get_databento_key()
+                if not db_key:
+                    st.error("Databento API key not found. Add DATABENTO_API_KEY to .streamlit/secrets.toml or environment.")
+                else:
+                    st.info(f"Databento key found (starts with {db_key[:8]}...). The request may have failed — check the dataset or date range.")
+                return
+
+            # Flatten multi-level columns if needed
+            if isinstance(full_df.columns, pd.MultiIndex):
+                full_df.columns = full_df.columns.get_level_values(0)
+
+            # Split into individual trading days
+            full_df.index = pd.to_datetime(full_df.index)
+            daily_dfs = {}
+            for date, group in full_df.groupby(full_df.index.date):
+                if len(group) >= 10:  # Need at least 10 bars
+                    daily_dfs[str(date)] = group
+
+            if not daily_dfs:
+                st.warning("Not enough intraday data. Try a more recent date range or different ticker.")
+                return
+
+            # Run multi-day backtest
+            report = run_multi_day_backtest(daily_dfs, mode=bt_mode)
+            st.session_state["bt_report"] = report
+
+    # Display report if available
+    report = st.session_state.get("bt_report")
+    if not report:
+        st.info("Configure settings above and press **Run Backtest** to start.")
         return
 
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        live_ticker = st.text_input("Ticker", value="AAPL", key="live_ticker").upper().strip()
-    with col2:
-        use_simulated = st.checkbox("Simulated Mode", value=True,
-                                     help="Use fake data for testing outside market hours")
-    with col3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        start_btn = st.button("▶️ Start", key="live_start")
-        stop_btn = st.button("⏹️ Stop", key="live_stop")
+    s = report["summary"]
+    trades = report["trades"]
 
-    # Initialize stream state
-    if "live_stream" not in st.session_state:
-        st.session_state["live_stream"] = None
-    if "live_df" not in st.session_state:
-        st.session_state["live_df"] = pd.DataFrame()
-    if "live_analysis" not in st.session_state:
-        st.session_state["live_analysis"] = {}
+    if s["total_trades"] == 0:
+        st.warning("No trades were generated. The algo didn't find any setups in this data.")
+        return
 
-    stream: LiveBarStream | None = st.session_state.get("live_stream")
+    # ── Summary metrics ──
+    st.markdown("---")
+    st.markdown("#### Performance Summary")
 
-    if start_btn and not (stream and stream.is_running):
-        def on_bar(df, analysis):
-            st.session_state["live_df"] = df
-            st.session_state["live_analysis"] = analysis
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Total Trades", s["total_trades"])
+    m2.metric("Win Rate", f"{s['win_rate']:.1%}")
+    m3.metric("Total P&L", f"${s['total_pnl']:.2f}/sh")
+    m4.metric("Profit Factor", f"{s['profit_factor']:.2f}")
+    m5.metric("Sharpe Ratio", f"{s['sharpe_annualized']:.2f}")
 
-        stream = LiveBarStream(
-            api_key=db_key,
-            ticker=live_ticker,
-            on_bar=on_bar,
+    m6, m7, m8, m9, m10 = st.columns(5)
+    m6.metric("Avg Winner", f"${s['avg_winner']:.2f}")
+    m7.metric("Avg Loser", f"${s['avg_loser']:.2f}")
+    m8.metric("Max Drawdown", f"${s['max_drawdown']:.2f}")
+    m9.metric("Avg R-Multiple", f"{s['avg_r_multiple']:.2f}R")
+    m10.metric("Avg Bars Held", f"{s['avg_bars_held']:.0f}")
+
+    # ── Equity curve ──
+    st.markdown("---")
+    st.markdown("#### Equity Curve")
+    curve = report["equity_curve"]
+    curve_df = pd.DataFrame(curve)
+    fig_eq = go.Figure()
+    fig_eq.add_trace(go.Scatter(
+        x=curve_df["trade_num"],
+        y=curve_df["equity"],
+        mode="lines+markers",
+        line=dict(color="#00C853", width=2),
+        marker=dict(size=6),
+        name="Equity",
+    ))
+    fig_eq.add_hline(y=0, line_dash="dash", line_color="gray")
+    fig_eq.update_layout(
+        xaxis_title="Trade #",
+        yaxis_title="Cumulative P&L ($/share)",
+        height=350,
+        margin=dict(l=40, r=20, t=20, b=40),
+    )
+    st.plotly_chart(fig_eq, use_container_width=True)
+
+    # ── Setup breakdown ──
+    st.markdown("---")
+    st.markdown("#### Setup Breakdown")
+    setup_rows = []
+    for name, stats in s["setup_stats"].items():
+        setup_rows.append({
+            "Setup": name,
+            "Trades": stats["count"],
+            "Win Rate": f"{stats['win_rate']:.0%}",
+            "P&L": f"${stats['pnl']:.2f}",
+            "Total R": f"{stats['total_r']:.1f}R",
+        })
+    if setup_rows:
+        st.dataframe(pd.DataFrame(setup_rows), width="stretch", hide_index=True)
+
+    # ── MAE / MFE Analysis ──
+    st.markdown("---")
+    st.markdown("#### MAE / MFE Analysis")
+    st.caption("MAE = how far price went against you. MFE = how far price went for you. Edge Ratio = MFE/MAE (higher is better).")
+
+    mae_col1, mae_col2, mae_col3, mae_col4, mae_col5 = st.columns(5)
+    mae_col1.metric("Avg MAE", f"${s['avg_mae']:.2f}")
+    mae_col2.metric("Avg MFE", f"${s['avg_mfe']:.2f}")
+    mae_col3.metric("Avg MAE (R)", f"{s['avg_mae_r']:.2f}R")
+    mae_col4.metric("Avg MFE (R)", f"{s['avg_mfe_r']:.2f}R")
+    mae_col5.metric("Edge Ratio", f"{s['edge_ratio']:.2f}")
+
+    mae_col6, mae_col7, mae_col8, mae_col9 = st.columns(4)
+    mae_col6.metric("MAE (Winners)", f"${s['avg_mae_winners']:.2f}")
+    mae_col7.metric("MAE (Losers)", f"${s['avg_mae_losers']:.2f}")
+    mae_col8.metric("MFE (Winners)", f"${s['avg_mfe_winners']:.2f}")
+    mae_col9.metric("MFE (Losers)", f"${s['avg_mfe_losers']:.2f}")
+
+    # MAE vs MFE scatter plot
+    if trades:
+        fig_mae = go.Figure()
+        winner_trades = [t for t in trades if t.is_winner]
+        loser_trades = [t for t in trades if not t.is_winner]
+
+        if winner_trades:
+            fig_mae.add_trace(go.Scatter(
+                x=[t.mae_r for t in winner_trades],
+                y=[t.mfe_r for t in winner_trades],
+                mode="markers",
+                marker=dict(color="#00C853", size=10, opacity=0.7),
+                name="Winners",
+                text=[f"{t.setup_name}<br>Bar {t.entry_bar}<br>P&L: ${t.pnl:.2f}" for t in winner_trades],
+                hovertemplate="%{text}<br>MAE: %{x:.1f}R<br>MFE: %{y:.1f}R<extra></extra>",
+            ))
+        if loser_trades:
+            fig_mae.add_trace(go.Scatter(
+                x=[t.mae_r for t in loser_trades],
+                y=[t.mfe_r for t in loser_trades],
+                mode="markers",
+                marker=dict(color="#FF1744", size=10, opacity=0.7),
+                name="Losers",
+                text=[f"{t.setup_name}<br>Bar {t.entry_bar}<br>P&L: ${t.pnl:.2f}" for t in loser_trades],
+                hovertemplate="%{text}<br>MAE: %{x:.1f}R<br>MFE: %{y:.1f}R<extra></extra>",
+            ))
+
+        # Add diagonal line (MFE = MAE, breakeven boundary)
+        max_val = max(
+            max((t.mae_r for t in trades), default=1),
+            max((t.mfe_r for t in trades), default=1),
+        ) * 1.1
+        fig_mae.add_trace(go.Scatter(
+            x=[0, max_val], y=[0, max_val],
+            mode="lines", line=dict(dash="dash", color="gray", width=1),
+            showlegend=False,
+        ))
+
+        fig_mae.update_layout(
+            xaxis_title="MAE (R-multiples) — Adverse Excursion →",
+            yaxis_title="MFE (R-multiples) — Favorable Excursion →",
+            height=400,
+            margin=dict(l=40, r=20, t=20, b=40),
         )
-        # Use simulated mode if checkbox is on
-        if use_simulated:
-            stream._run = stream._run_simulated
-        stream.start()
-        st.session_state["live_stream"] = stream
-        st.rerun()
+        st.plotly_chart(fig_mae, use_container_width=True)
+        st.caption("Trades above the diagonal had more favorable than adverse movement. Trades below were fighting the market.")
 
-    if stop_btn and stream and stream.is_running:
-        stream.stop()
-        st.session_state["live_stream"] = None
-        st.rerun()
+    # ── Exit reason breakdown ──
+    col_exit, col_streak = st.columns(2)
+    with col_exit:
+        st.markdown("#### Exit Reasons")
+        for reason, count in s["exit_reasons"].items():
+            label = reason.replace("_", " ").title()
+            st.markdown(f"- **{label}**: {count} trades")
+    with col_streak:
+        st.markdown("#### Streaks")
+        st.markdown(f"- **Best Win Streak**: {s['max_win_streak']}")
+        st.markdown(f"- **Worst Loss Streak**: {s['max_loss_streak']}")
 
-    # Status indicator
-    if stream and stream.is_running:
-        st.success(f"🟢 Streaming {live_ticker} — {'simulated' if use_simulated else 'live'} bars")
-    elif stream and stream.error:
-        st.error(f"Stream error: {stream.error}")
-    else:
-        st.info("Press **Start** to begin streaming.")
+    # ── Daily breakdown (if multi-day) ──
+    if "daily_results" in s:
+        st.markdown("---")
+        st.markdown("#### Daily Breakdown")
+        daily_rows = []
+        for d in s["daily_results"]:
+            daily_rows.append({
+                "Date": d["date"],
+                "Day Type": d["day_type"],
+                "Setups Found": d["setups_found"],
+                "Trades Taken": d["trades"],
+                "Winners": d["winners"],
+                "P&L": f"${d['pnl']:.2f}",
+            })
+        if daily_rows:
+            st.dataframe(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
 
-    # Display chart + signals
-    live_df = st.session_state.get("live_df", pd.DataFrame())
-    live_analysis = st.session_state.get("live_analysis", {})
+    # ── Full trade log ──
+    st.markdown("---")
+    st.markdown("#### Trade Log")
+    trade_df = trades_to_dataframe(trades)
+    st.dataframe(trade_df, width="stretch", hide_index=True)
 
-    if not live_df.empty:
-        fig = build_chart(live_df, live_ticker)
+    # ── Export ──
+    csv_data = trade_df.to_csv(index=False)
+    st.download_button(
+        label="📥 Download Trade Log (CSV)",
+        data=csv_data,
+        file_name=f"backtest_{bt_ticker}_{bt_mode}.csv",
+        mime="text/csv",
+    )
 
-        # Add setup annotations if algo detected any
-        if live_analysis and live_analysis.get("setups"):
-            chart_view = st.session_state.get("chart_view", "All Setups")
-            best_only = chart_view == "Best Setup Only"
-            fig = _add_annotations(fig, live_df, live_analysis, best_only=best_only)
 
-        st.plotly_chart(fig, use_container_width=True)
+# ─────────────────────────── SETUPS TAB ────────────────────────────────────
 
-        # Show latest signals
-        if live_analysis:
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.metric("Day Type", live_analysis.get("day_type", "—"))
-            with col_b:
-                st.metric("Action", live_analysis.get("action", "—"))
-            with col_c:
-                conf = live_analysis.get("confidence", 0)
-                st.metric("Confidence", f"{conf:.0%}" if isinstance(conf, (int, float)) else conf)
-
-            setups = live_analysis.get("setups", [])
-            if setups:
-                st.markdown("**Active Setups:**")
-                for s in setups:
-                    name = s.get("name", "?")
-                    bar = s.get("entry_bar", "?")
-                    price = s.get("entry_price", "?")
-                    order = s.get("order_type", "?")
-                    st.markdown(f"- **{name}** — Bar {bar}, {order} @ {price}")
-
-        # Auto-refresh every 5 seconds while streaming
-        if stream and stream.is_running:
-            time.sleep(5)
-            st.rerun()
-    else:
-        st.markdown("*Waiting for bars...*")
-        if stream and stream.is_running:
-            time.sleep(2)
-            st.rerun()
+def render_setups():
+    st.markdown("### 📖 Setups Guide & Examples")
+    st.markdown("View definitions and find real historical examples of each Al Brooks setup.")
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        setup_name = st.selectbox("Select Setup", SETUP_OPTIONS[1:])
+        
+        st.markdown("---")
+        st.markdown(f"**Action:** Find a real example of **{setup_name}** in the S&P 500.")
+        find_btn = st.button("🔎 Find Example", type="primary", use_container_width=True)
+        
+    with col2:
+        st.markdown(f"#### {setup_name} - Definition")
+        # Try to find it in the encyclopedia
+        encyclopedia = load_encyclopedia()
+        lines = encyclopedia.split('\\n')
+        capture = False
+        definition = []
+        for line in lines:
+            if line.startswith('### ') or line.startswith('## ') or line.startswith('#### '):
+                # Loose matching
+                clean_line = line.replace("#", "").replace("*", "").strip().lower()
+                clean_setup = setup_name.lower().strip()
+                if clean_setup in clean_line or clean_line in clean_setup:
+                    capture = True
+                    continue
+                elif capture:
+                    break
+            if capture:
+                definition.append(line)
+                
+        def_text = "\\n".join(definition).strip()
+        if def_text:
+            st.info(def_text)
+        else:
+            st.warning("Specific definition not found in the encyclopedia. Refer to Al Brooks' books for full details on this setup.")
+            
+    if find_btn:
+        with st.spinner(f"Scanning S&P 500 for a textbook example of {setup_name}..."):
+            from algo_engine import analyze_bars
+            import datetime as _dt
+            tickers = get_sp500_tickers()
+            random.shuffle(tickers)
+            
+            end = _dt.date.today()
+            start = end - _dt.timedelta(days=15) # Look back 15 days
+            s_end = end.strftime("%Y-%m-%d")
+            s_start = start.strftime("%Y-%m-%d")
+            
+            found_fig = None
+            found_ticker = ""
+            
+            # Scan up to 30 random tickers
+            progress_bar = st.progress(0)
+            for i, ticker in enumerate(tickers[:30]):
+                progress_bar.progress((i + 1) / 30)
+                try:
+                    df = fetch_chart_data_v2(ticker, start_date=s_start, end_date=s_end)
+                    if df is not None and not df.empty:
+                        analysis = analyze_bars(df)
+                        setups = analysis.get("setups", [])
+                        
+                        # Look for our setup
+                        matching = []
+                        for s in setups:
+                            name = getattr(s, "setup_name", None)
+                            if not name and isinstance(s, dict):
+                                name = s.get("setup_name")
+                            if name == setup_name:
+                                matching.append(s)
+                                
+                        if matching:
+                            found_ticker = ticker
+                            # Create a mock analysis with ONLY this setup to highlight it
+                            hl_analysis = {"action": analysis.get("action", ""), "setups": matching}
+                            found_fig = build_chart(df, ticker)
+                            found_fig = _add_annotations(found_fig, df, hl_analysis, best_only=False)
+                            break
+                except Exception:
+                    pass # Ignore ticker fetch errors during bulk scan
+            
+            progress_bar.empty()
+            
+            if found_fig:
+                st.success(f"✅ Found an example of **{setup_name}** on **{found_ticker}** within the last 15 days!")
+                st.plotly_chart(found_fig, use_container_width=True)
+            else:
+                st.error(f"❌ Could not find a recent example of **{setup_name}** in the 30 tickers scanned. The setup might be rare right now.")
 
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
@@ -1289,8 +1686,8 @@ def render_live_feed():
 def main():
     render_sidebar()
 
-    tab_train, tab_history, tab_examples, tab_live = st.tabs(
-        ["🧪 Training Lab", "📜 History", "📚 Examples", "🔴 Live Feed"]
+    tab_train, tab_history, tab_examples, tab_backtest, tab_scanner, tab_setups = st.tabs(
+        ["🧪 Training Lab", "📜 History", "📚 Examples", "📊 Backtest", "🔎 Scanner", "📖 Setups"]
     )
 
     with tab_train:
@@ -1302,8 +1699,14 @@ def main():
     with tab_examples:
         render_examples()
 
-    with tab_live:
-        render_live_feed()
+    with tab_backtest:
+        render_backtest()
+        
+    with tab_scanner:
+        render_market_scanner()
+
+    with tab_setups:
+        render_setups()
 
 
 if __name__ == "__main__":
