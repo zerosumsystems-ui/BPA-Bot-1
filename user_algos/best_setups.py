@@ -19,18 +19,19 @@ def detect_major_trend_reversal(bars: List[Bar], ema: List[float]) -> List[Setup
         
     for i in range(25, len(bars)):
         current_bar = bars[i]
-        
+
         # --- LOOKING FOR BULL REVERSAL (Bear Trend -> Bull Trend) ---
         # 1. MARKET CYCLE CONTEXT: Was there a strong bear trend recently? (e.g., prices consistently below 20 EMA)
         # Avoid taking MTRs on Trending Trading Range Days or pure TR days.
         past_15_bars = bars[i-20:i-5]
         past_30_bars = bars[i-30:i] if i >= 30 else bars[:i]
-        
+        recent_bars = bars[i-5:i]
+
         # Determine day type / market cycle: Is it a broad trading range?
         is_trading_range = abs(past_30_bars[-1].ema_20 - past_30_bars[0].ema_20) < past_30_bars[0].close * 0.002
         if is_trading_range:
             continue # MTR requires a preceding strong trend, not a trading range
-            
+
         if sum(1 for b in past_15_bars if b.close < ema[b.idx]) >= 12: # 80% below EMA
             
             # 2. Was there a break of the trend line / EMA? (A strong bull push)

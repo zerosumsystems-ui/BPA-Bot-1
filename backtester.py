@@ -267,13 +267,22 @@ def run_backtest(
         name = setup["setup_name"]
 
         # Determine direction from setup name
-        buy_keywords = ["Bull", "Bottom", "Buy", "High", "Breakout"]
+        # Count bull vs bear keyword matches to handle confluence names
+        # that may contain both (e.g. "Bear Spike & Channel Bottom + Bull Flag")
+        buy_keywords = ["Bull", "Bottom", "Buy", "High"]
         sell_keywords = ["Bear", "Top", "Sell", "Low"]
-        direction = "Long"
-        if any(kw in name for kw in sell_keywords):
+        bull_score = sum(name.count(kw) for kw in buy_keywords)
+        bear_score = sum(name.count(kw) for kw in sell_keywords)
+
+        if bull_score > bear_score:
+            direction = "Long"
+        elif bear_score > bull_score:
             direction = "Short"
-        elif not any(kw in name for kw in buy_keywords):
-            continue  # Skip ambiguous setups
+        elif bull_score == bear_score and bull_score > 0:
+            # Tie-breaker: check if price is above or below EMA
+            direction = "Long" if bars[bar_idx].close > ema[bar_idx] else "Short"
+        else:
+            continue  # No directional keywords at all — skip
 
         # Calculate Al Brooks levels from signal bar
         levels = calculate_al_brooks_levels(signal_bar, direction)
@@ -352,6 +361,215 @@ def run_multi_day_backtest(
         "summary": summary,
         "equity_curve": equity_curve,
     }
+
+
+# ─────────────────────────── DAILY CHART BACKTEST ─────────────────────────────
+
+def run_daily_backtest(
+    df: pd.DataFrame,
+    mode: str = "swing",
+    max_trades: int = 100,
+    min_bars_between_trades: int = 2,
+    hold_limit: int = 20,
+) -> dict:
+    """
+    Run a backtest on DAILY bars (one bar per trading day).
+    Unlike the intraday backtester, trades here span multiple days and
+    there is no forced EOD close. Trades exit when they hit target, stop,
+    or the hold limit (max bars to stay in a trade).
+
+    Args:
+        df: DataFrame with daily OHLCV, indexed by date
+        mode: "scalp" (1:1 R/R) or "swing" (2:1 R/R)
+        max_trades: max total trades for the whole series
+        min_bars_between_trades: min days between entries
+        hold_limit: max days to hold a single trade before forced exit
+
+    Returns:
+        dict with keys: trades, summary, equity_curve, analysis
+    """
+    bars = bars_from_df(df)
+    if len(bars) < 20:
+        return _empty_report()
+
+    ema = compute_ema(bars)
+    timestamps = [str(idx) for idx in df.index]
+
+    # Run algo to get setups on the full daily series
+    analysis = analyze_bars(df)
+    setups = analysis.get("setups", [])
+
+    if not setups:
+        return _empty_report()
+
+    # Convert setups to trades
+    trades: list[Trade] = []
+    last_exit_bar = -999  # Track last EXIT bar (not entry) to avoid overlapping trades
+
+    for setup in setups:
+        entry_bar_num = setup["entry_bar"]
+        bar_idx = entry_bar_num - 1
+
+        if bar_idx < 1 or bar_idx >= len(bars):
+            continue
+
+        # Don't enter while a previous trade is still open — wait until after last exit
+        if entry_bar_num <= last_exit_bar:
+            continue
+
+        # Enforce minimum spacing
+        if trades and entry_bar_num - trades[-1].entry_bar < min_bars_between_trades:
+            continue
+
+        if len(trades) >= max_trades:
+            break
+
+        signal_bar = bars[bar_idx - 1]
+        name = setup["setup_name"]
+
+        # Direction scoring (same as intraday)
+        buy_keywords = ["Bull", "Bottom", "Buy", "High"]
+        sell_keywords = ["Bear", "Top", "Sell", "Low"]
+        bull_score = sum(name.count(kw) for kw in buy_keywords)
+        bear_score = sum(name.count(kw) for kw in sell_keywords)
+
+        if bull_score > bear_score:
+            direction = "Long"
+        elif bear_score > bull_score:
+            direction = "Short"
+        elif bull_score == bear_score and bull_score > 0:
+            direction = "Long" if bars[bar_idx].close > ema[bar_idx] else "Short"
+        else:
+            continue
+
+        levels = calculate_al_brooks_levels(signal_bar, direction)
+
+        trade = Trade(
+            entry_bar=entry_bar_num,
+            entry_price=levels["entry"],
+            entry_time=timestamps[bar_idx] if bar_idx < len(timestamps) else "",
+            setup_name=name,
+            direction=direction,
+            order_type=setup.get("order_type", "Stop"),
+            stop_loss=levels["stop"],
+            scalp_target=levels["scalp_target"],
+            swing_target=levels["swing_target"],
+            risk_per_share=levels["risk"],
+        )
+
+        # Simulate — but with a hold limit instead of EOD close
+        trade = _simulate_daily_trade(trade, bars, timestamps, mode=mode, hold_limit=hold_limit)
+        trades.append(trade)
+        last_exit_bar = trade.exit_bar
+
+    summary = _compute_summary(trades, mode)
+    summary["total_bars"] = len(bars)
+    equity_curve = _build_equity_curve(trades)
+
+    return {
+        "trades": trades,
+        "summary": summary,
+        "equity_curve": equity_curve,
+        "analysis": analysis,
+    }
+
+
+def _simulate_daily_trade(
+    trade: Trade,
+    bars: list[Bar],
+    timestamps: list[str],
+    mode: str = "swing",
+    hold_limit: int = 20,
+) -> Trade:
+    """
+    Walk forward through DAILY bars. Same logic as simulate_trade but
+    instead of EOD close, we use a hold_limit (max bars in trade).
+    """
+    target = trade.scalp_target if mode == "scalp" else trade.swing_target
+    start_idx = trade.entry_bar  # 1-indexed, bars list is 0-indexed
+
+    max_adverse = 0.0
+    max_favorable = 0.0
+    mae_bar_idx = start_idx
+    mfe_bar_idx = start_idx
+
+    for i in range(start_idx, min(start_idx + hold_limit, len(bars))):
+        bar = bars[i]
+
+        if trade.direction == "Long":
+            adverse = trade.entry_price - bar.low
+            favorable = bar.high - trade.entry_price
+        else:
+            adverse = bar.high - trade.entry_price
+            favorable = trade.entry_price - bar.low
+
+        if adverse > max_adverse:
+            max_adverse = adverse
+            mae_bar_idx = i
+        if favorable > max_favorable:
+            max_favorable = favorable
+            mfe_bar_idx = i
+
+        if trade.direction == "Long":
+            if bar.low <= trade.stop_loss:
+                trade.exit_bar = bar.idx
+                trade.exit_price = trade.stop_loss
+                trade.exit_time = timestamps[i] if i < len(timestamps) else ""
+                trade.exit_reason = "stop_loss"
+                trade.pnl = round(trade.stop_loss - trade.entry_price, 2)
+                break
+            if bar.high >= target:
+                trade.exit_bar = bar.idx
+                trade.exit_price = target
+                trade.exit_time = timestamps[i] if i < len(timestamps) else ""
+                trade.exit_reason = f"{mode}_target"
+                trade.pnl = round(target - trade.entry_price, 2)
+                break
+        else:
+            if bar.high >= trade.stop_loss:
+                trade.exit_bar = bar.idx
+                trade.exit_price = trade.stop_loss
+                trade.exit_time = timestamps[i] if i < len(timestamps) else ""
+                trade.exit_reason = "stop_loss"
+                trade.pnl = round(trade.entry_price - trade.stop_loss, 2)
+                break
+            if bar.low <= target:
+                trade.exit_bar = bar.idx
+                trade.exit_price = target
+                trade.exit_time = timestamps[i] if i < len(timestamps) else ""
+                trade.exit_reason = f"{mode}_target"
+                trade.pnl = round(trade.entry_price - target, 2)
+                break
+    else:
+        # Hit hold limit — close at last bar's close
+        last_idx = min(start_idx + hold_limit - 1, len(bars) - 1)
+        last = bars[last_idx]
+        trade.exit_bar = last.idx
+        trade.exit_price = last.close
+        trade.exit_time = timestamps[last_idx] if last_idx < len(timestamps) else ""
+        trade.exit_reason = "hold_limit"
+        if trade.direction == "Long":
+            trade.pnl = round(last.close - trade.entry_price, 2)
+        else:
+            trade.pnl = round(trade.entry_price - last.close, 2)
+
+    trade.is_winner = trade.pnl > 0
+    trade.bars_held = trade.exit_bar - trade.entry_bar
+    if trade.risk_per_share > 0:
+        trade.r_multiple = round(trade.pnl / trade.risk_per_share, 2)
+        trade.mae_r = round(max_adverse / trade.risk_per_share, 2)
+        trade.mfe_r = round(max_favorable / trade.risk_per_share, 2)
+    else:
+        trade.r_multiple = 0.0
+        trade.mae_r = 0.0
+        trade.mfe_r = 0.0
+
+    trade.mae = round(max_adverse, 2)
+    trade.mfe = round(max_favorable, 2)
+    trade.mae_bar = bars[mae_bar_idx].idx if mae_bar_idx < len(bars) else 0
+    trade.mfe_bar = bars[mfe_bar_idx].idx if mfe_bar_idx < len(bars) else 0
+
+    return trade
 
 
 # ─────────────────────────── REPORT COMPUTATION ──────────────────────────────

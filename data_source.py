@@ -149,9 +149,13 @@ class DatabentoSource(DataSource):
                 end_dt = datetime.datetime.fromisoformat(end)
                 
                 s_str = start_dt.strftime("%Y-%m-%d")
-                e_str = end_dt.strftime("%Y-%m-%d")
-                if s_str == e_str:
-                    e_str = (end_dt + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+                
+                # Databento's end date is strictly exclusive. Always add 1 day to make it inclusive of the requested end date.
+                target_e = end_dt.date() + datetime.timedelta(days=1)
+                today = datetime.date.today()
+                if target_e > today:
+                    target_e = today
+                e_str = target_e.strftime("%Y-%m-%d")
                 
                 logger.info(f"Databento: trying {dataset}/{schema} for {ticker} ({start} → {end})")
                 
@@ -227,19 +231,20 @@ class DatabentoSource(DataSource):
                         "Volume": "sum",
                     }).dropna()
                     
-                    # Keep only the most recent trading day to prevent chart distortion
                     if not df.empty:
                         # Ensure timezone is US/Eastern for RTH filtering
                         if df.index.tzinfo is None:
                             df.index = df.index.tz_localize("UTC").tz_convert("US/Eastern")
                         else:
                             df.index = df.index.tz_convert("US/Eastern")
-                            
+
                         # Filter to Regular Trading Hours (RTH)
                         df = df.between_time("09:30", "15:59")
-                        
-                        # Extract the most recent single date
-                        if not df.empty:
+
+                        # Only keep the most recent day when no date range was explicitly requested
+                        # (i.e., single-chart mode like Training Lab). Backtest passes start/end dates
+                        # and needs ALL days returned.
+                        if not start_date and not df.empty:
                             df["_date"] = df.index.date
                             last_day = df["_date"].max()
                             df = df[df["_date"] == last_day].drop(columns=["_date"])
@@ -251,7 +256,6 @@ class DatabentoSource(DataSource):
                 logger.warning(f"Databento {schema} failed for {ticker}: {e}")
                 continue
 
-        # No fallback to yfinance; Databento is required for full range.
         logger.error(f"Databento: all schemas failed for {ticker}")
         return None
 
@@ -273,9 +277,12 @@ class DatabentoSource(DataSource):
         db_start = s_dt.strftime("%Y-%m-%dT00:00:00")
         
         # Databento needs the end date to be exclusive/next day for full day coverage
-        e_str = e_dt.strftime("%Y-%m-%d")
-        if s_dt.strftime("%Y-%m-%d") == e_str:
-            e_str = (e_dt + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        # Always add 1 day so the requested end date is fully included.
+        target_e = e_dt.date() + datetime.timedelta(days=1)
+        today = datetime.date.today()
+        if target_e > today:
+            target_e = today
+        e_str = target_e.strftime("%Y-%m-%d")
         db_end = f"{e_str}T00:00:00"
 
         # Split tickers into batches of 50 to avoid any API limits
@@ -343,14 +350,10 @@ class DatabentoSource(DataSource):
             if resampled.empty:
                 continue
                 
-            # Keep only the newest day's data
-            resampled["_date"] = resampled.index.date
-            last_day = resampled["_date"].max()
-            resampled = resampled[resampled["_date"] == last_day].drop(columns=["_date"])
+            # We must KEEP all available days (e.g. 5 days of history) 
+            # so that algorithms like EMA and Swing High/Low can properly seed 
+            # and analyze setups on the final day.
             
-            if resampled.empty:
-                continue
-                
             # Format output schema
             resampled["symbol"] = sym
             resampled["BarNumber"] = range(1, len(resampled) + 1)
@@ -361,6 +364,73 @@ class DatabentoSource(DataSource):
 
         return pd.concat(processed_dfs)
 
+# ─────────────────────────── YFINANCE SOURCE ─────────────────────────────────
+
+class YFinanceSource(DataSource):
+    """Fallback data source using yFinance (free, no API key needed, but limited to ~60 days of 5-min data)."""
+
+    def name(self) -> str:
+        return "yFinance"
+
+    def fetch_historical(
+        self,
+        ticker: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
+        try:
+            import yfinance as yf
+        except ImportError:
+            logger.error("yfinance not installed — cannot use YFinanceSource")
+            return None
+
+        try:
+            # yfinance 5m data is limited to last 60 days
+            if start_date and end_date:
+                df = yf.download(ticker, start=start_date, end=end_date, interval="5m", progress=False)
+            else:
+                df = yf.download(ticker, period="1d", interval="5m", progress=False)
+
+            if df is None or df.empty:
+                return None
+
+            # Flatten multi-level columns if present
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
+            # Ensure required columns exist
+            required = ["Open", "High", "Low", "Close"]
+            if not all(c in df.columns for c in required):
+                logger.warning(f"yFinance: missing columns for {ticker}")
+                return None
+
+            df = df.dropna(subset=required)
+
+            if df.empty:
+                return None
+
+            # Filter to RTH if timezone info is available
+            if df.index.tzinfo is not None:
+                df.index = df.index.tz_convert("US/Eastern")
+                df = df.between_time("09:30", "15:59")
+
+            # Keep only the most recent trading day for single-day view
+            if not start_date and not df.empty:
+                df["_date"] = df.index.date
+                last_day = df["_date"].max()
+                df = df[df["_date"] == last_day].drop(columns=["_date"])
+
+            if df.empty:
+                return None
+
+            logger.info(f"yFinance: got {len(df)} bars for {ticker}")
+            return df
+
+        except Exception as e:
+            logger.warning(f"yFinance failed for {ticker}: {e}")
+            return None
+
+
 # ─────────────────────────── FACTORY ─────────────────────────────────────────
 
 def get_data_source(
@@ -369,11 +439,15 @@ def get_data_source(
 ) -> DataSource:
     """
     Create a data source.
-    Forces Databento to avoid 60-day limits from yfinance.
+    Tries Databento first (better data, longer history). Falls back to yFinance if no key.
     """
     databento_key = api_key or os.environ.get("DATABENTO_API_KEY", "")
-    
-    if not databento_key:
-        logger.warning("No Databento API key provided. Add to .streamlit/secrets.toml!")
-        
-    return DatabentoSource(databento_key)
+
+    if databento_key:
+        try:
+            return DatabentoSource(databento_key)
+        except Exception as e:
+            logger.warning(f"Databento init failed ({e}), falling back to yFinance")
+
+    logger.info("Using yFinance as data source (no Databento key or Databento failed)")
+    return YFinanceSource()

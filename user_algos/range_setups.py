@@ -29,7 +29,7 @@ def detect_bear_stairs(bars: List[Bar], ema: List[float]) -> List[Setup]:
         if local_minima >= 3:
             if curr.close > curr.open and curr.close > curr.midpoint and curr.body_size > curr.range * 0.5:
                 setups.append(Setup(
-                    index=i, bar=curr, setup_type="Bear Stairs Reversal (3rd/4th Push)",
+                    index=i, bar=curr, setup_name="Bear Stairs Reversal (3rd/4th Push)",
                     direction=1, confidence=0.75, notes="Exhaustion of sellers after 3+ pushes down in a stair-step channel."
                 ))
     return setups
@@ -58,10 +58,10 @@ def detect_spike_and_channel_exhaustion(bars: List[Bar], ema: List[float]) -> Li
         if early_range > 0 and (late_range / len(late_bars)) < (early_range / len(early_bars)) * 0.5:
             # Bull Spike & Channel Exhaustion (Look for Bear signal)
             if curr.close < curr.open and curr.close < curr.midpoint:
-                 setups.append(Setup(i, curr, "Bull Spike & Channel Top", -1, 0.70, "Momentum heavily decayed from original spike."))
+                 setups.append(Setup(index=i, bar=curr, setup_name="Bull Spike & Channel Top", direction=-1, confidence=0.70, notes="Momentum heavily decayed from original spike."))
             # Bear Spike & Channel Exhaustion (Look for Bull signal)
             elif curr.close > curr.open and curr.close > curr.midpoint:
-                 setups.append(Setup(i, curr, "Bear Spike & Channel Bottom", 1, 0.70, "Momentum heavily decayed from original spike."))
+                 setups.append(Setup(index=i, bar=curr, setup_name="Bear Spike & Channel Bottom", direction=1, confidence=0.70, notes="Momentum heavily decayed from original spike."))
                  
     return setups
 
@@ -85,14 +85,14 @@ def detect_h1_l1_in_strong_spike(bars: List[Bar], ema: List[float]) -> List[Setu
             if prev1.close > prev1.midpoint and prev2.close > prev2.midpoint:
                 # The H1: A small pullback bar that doesn't reverse the whole spike
                 if curr.low < prev1.low and curr.close > curr.open:
-                    setups.append(Setup(i, curr, "H1 in Strong Bull Spike", 1, 0.85, "First pullback (H1) after 3-bar bull breakout spike."))
+                    setups.append(Setup(index=i, bar=curr, setup_name="H1 in Strong Bull Spike", direction=1, confidence=0.85, notes="First pullback (H1) after 3-bar bull breakout spike."))
                     
         # Bear Spike: 3 consecutive strong bear bars closing near their lows
         elif prev3.close < prev3.open and prev2.close < prev2.open and prev1.close < prev1.open:
             if prev1.close < prev1.midpoint and prev2.close < prev2.midpoint:
                 # The L1: A small pullback bar
                 if curr.high > prev1.high and curr.close < curr.open:
-                    setups.append(Setup(i, curr, "L1 in Strong Bear Spike", -1, 0.85, "First pullback (L1) after 3-bar bear breakout spike."))
+                    setups.append(Setup(index=i, bar=curr, setup_name="L1 in Strong Bear Spike", direction=-1, confidence=0.85, notes="First pullback (L1) after 3-bar bear breakout spike."))
                     
     return setups
 
@@ -121,11 +121,11 @@ def detect_range_boundary_fades(bars: List[Bar], ema: List[float]) -> List[Setup
             # Fade the Top (Shorting)
             # If price pushes up to the old high, but immediately reverses into a bear bar
             if curr.high >= (range_high * 0.998) and curr.close < curr.midpoint:
-                setups.append(Setup(i, curr, "Trading Range Top Reversal", -1, 0.80, "Price rejected perfectly off the established 20-bar range ceiling."))
+                setups.append(Setup(index=i, bar=curr, setup_name="Trading Range Top Reversal", direction=-1, confidence=0.80, notes="Price rejected perfectly off the established 20-bar range ceiling."))
                 
             # Fade the Bottom (Buying)
             # If price pushes down to the old low, but immediately reverses into a bull bar
             elif curr.low <= (range_low * 1.002) and curr.close > curr.midpoint:
-                setups.append(Setup(i, curr, "Trading Range Bottom Reversal", 1, 0.80, "Price rejected perfectly off the established 20-bar range floor."))
+                setups.append(Setup(index=i, bar=curr, setup_name="Trading Range Bottom Reversal", direction=1, confidence=0.80, notes="Price rejected perfectly off the established 20-bar range floor."))
                 
     return setups

@@ -28,7 +28,15 @@ class Bar:
     low: float
     close: float
     volume: float = 0.0
+    ema_20: float = 0.0
 
+    @property
+    def midpoint(self) -> float:
+        return (self.high + self.low) / 2.0
+
+    @property
+    def body_size(self) -> float:
+        return self.body
     @property
     def body(self) -> float:
         return abs(self.close - self.open)
@@ -152,6 +160,7 @@ def find_swing_lows(bars: list[Bar], lookback: int = 3) -> list[int]:
 @dataclass
 class Setup:
     setup_name: str = ""
+    signal_bar: int = 0
     entry_bar: int = 0
     entry_price: float = 0.0
     order_type: str = "Stop"
@@ -170,9 +179,14 @@ class Setup:
         # Support legacy / dynamic user algos that pass name as setup_type
         if self.setup_type and not self.setup_name:
             self.setup_name = self.setup_type
-        # If user algo passed 'index' but not 'entry_bar'
-        if self.index > 0 and self.entry_bar == 0:
-            self.entry_bar = self.index
+            
+        # If user algo passed 'index' (the signal bar)
+        if self.index > 0:
+            if self.signal_bar == 0:
+                self.signal_bar = self.index
+            if self.entry_bar == 0:
+                self.entry_bar = self.index + 1
+                
         # Try to infer entry_price if not provided but bar is
         if self.entry_price == 0.0 and hasattr(self.bar, 'high'):
             self.entry_price = round(self.bar.high + 0.01, 2) if self.direction == 1 else round(self.bar.low - 0.01, 2)
@@ -370,7 +384,7 @@ def detect_breakouts(bars: list[Bar], ema: list[float]) -> list[Setup]:
 
         if (single_massive_bull or consecutive_bulls) and bar.close > ema[i]:
             setups.append(Setup(
-                setup_name="Breakout (BO)",
+                setup_name="Bull Breakout (BO)",
                 entry_bar=bar.idx,
                 entry_price=round(bar.close, 2),
                 order_type="Stop",  # Often entered at market or stop above the breakout bar
@@ -388,7 +402,7 @@ def detect_breakouts(bars: list[Bar], ema: list[float]) -> list[Setup]:
 
         if (single_massive_bear or consecutive_bears) and bar.close < ema[i]:
             setups.append(Setup(
-                setup_name="Breakout (BO)",
+                setup_name="Bear Breakout (BO)",
                 entry_bar=bar.idx,
                 entry_price=round(bar.close, 2),
                 order_type="Stop",
@@ -846,6 +860,10 @@ def analyze_bars(df: pd.DataFrame) -> dict:
     ema = compute_ema(bars)
     swing_lows = find_swing_lows(bars)
     swing_highs = find_swing_highs(bars)
+
+    # Inject EMA into Bars for user algo compatibility
+    for idx_in_list, b in enumerate(bars):
+        b.ema_20 = ema[idx_in_list]
 
     # Detect all patterns
     all_setups: list[Setup] = []
