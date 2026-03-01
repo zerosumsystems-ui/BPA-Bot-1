@@ -564,9 +564,18 @@ def load_new_chart():
         st.session_state.pop("prefetch_ready", None)
         return
 
+    # Fail fast if no API key is set on Render
+    if not get_databento_key():
+        st.error("⚠️ **DATABENTO_API_KEY is not set.** Please add it to your Render Environment Variables. The app cannot function without data.")
+        return
+
     tickers = get_sp500_tickers()
     random.shuffle(tickers)
-    for t in tickers:
+    for i, t in enumerate(tickers):
+        if i >= 5:  # Prevent hanging the server on API failures/rate limits
+            st.error("⚠️ Databento API failed to return data after 5 attempts. You may be out of credits, or the Databento API is down. Check Render logs.")
+            return
+
         df = fetch_chart_data_v2(t)
         if df is not None and len(df) > 30:
             st.session_state["ticker"] = t
