@@ -1960,7 +1960,7 @@ def render_backtest_daily():
         if idx < len(trades):
             sel_trade = trades[idx]
             source_df = st.session_state.get("dt_source_df")
-            used_ticker = st.session_state.get("dt_ticker_used", dt_ticker)
+            used_ticker = st.session_state.get("dt_ticker_used", "SPY")
             if source_df is not None and not source_df.empty:
                 fig_trade = build_trade_chart(source_df, sel_trade, used_ticker, is_daily=True)
                 st.plotly_chart(fig_trade, use_container_width=True, key="dt_trade_chart")
@@ -1968,7 +1968,8 @@ def render_backtest_daily():
                 st.caption("Chart data not available.")
 
     csv_data = trade_df.to_csv(index=False)
-    st.download_button("Download CSV", csv_data, f"daily_backtest_{dt_ticker}_{dt_mode}.csv", "text/csv", key="dt_csv")
+    tickers_label = "_".join(dt_ticker_list[:3]) if dt_ticker_list else "daily"
+    st.download_button("Download CSV", csv_data, f"daily_backtest_{tickers_label}_{dt_mode}.csv", "text/csv", key="dt_csv")
 
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
