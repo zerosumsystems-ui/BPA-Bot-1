@@ -471,14 +471,76 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     return fig
 
 
+def _normalize_setup_name(name: str) -> str:
+    """Normalize setup names so variants group together.
+    'High 1 Bull Flag' / 'High 2 Bull Flag' → 'Bull Flag'
+    'Low 3 Bear Flag' → 'Bear Flag'
+    'Confluence: A + B' → 'Confluence'
+    Everything else stays as-is.
+    """
+    import re
+    if name.startswith("Confluence:"):
+        return "Confluence"
+    # High N Bull Flag → Bull Flag
+    m = re.match(r"^High \d+ Bull Flag$", name)
+    if m:
+        return "Bull Flag"
+    # Low N Bear Flag → Bear Flag
+    m = re.match(r"^Low \d+ Bear Flag$", name)
+    if m:
+        return "Bear Flag"
+    return name
+
+
+def _compute_group_stats(group_trades: list) -> dict:
+    """Compute stats for a group of trades."""
+    count = len(group_trades)
+    if count == 0:
+        return None
+    wins = sum(1 for t in group_trades if t.is_winner)
+    losses = count - wins
+    pnl = round(sum(t.pnl for t in group_trades), 2)
+    win_pnl = sum(t.pnl for t in group_trades if t.is_winner)
+    loss_pnl = sum(t.pnl for t in group_trades if not t.is_winner)
+    avg_pnl = round(pnl / count, 2)
+    avg_r = round(sum(t.r_multiple for t in group_trades) / count, 2) if count > 0 else 0.0
+    win_rate = round(wins / count, 3)
+    pf = round(win_pnl / abs(loss_pnl), 2) if loss_pnl != 0 else (float('inf') if win_pnl > 0 else 0.0)
+    best = max(t.pnl for t in group_trades)
+    worst = min(t.pnl for t in group_trades)
+    return {
+        "count": count, "wins": wins, "losses": losses, "pnl": pnl,
+        "win_rate": win_rate, "avg_pnl": avg_pnl, "avg_r": avg_r,
+        "profit_factor": pf, "best_trade": best, "worst_trade": worst,
+    }
+
+
 def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"):
     """Render setup performance with a summary table and per-setup expandable detail sections."""
-    setup_stats = summary.get("setup_stats", {})
-    if not setup_stats:
+    if not trades:
         return
 
+    from collections import defaultdict
+
+    # Group trades by normalized setup name
+    trades_by_group = defaultdict(list)
+    for t in trades:
+        group = _normalize_setup_name(t.setup_name)
+        trades_by_group[group].append(t)
+
+    if not trades_by_group:
+        return
+
+    # Compute stats per group from trades
+    group_stats = {}
+    for group, gtrades in trades_by_group.items():
+        gs = _compute_group_stats(gtrades)
+        if gs:
+            group_stats[group] = gs
+
+    # Summary table
     rows = []
-    for name, s in setup_stats.items():
+    for name, s in group_stats.items():
         rows.append({
             "Setup": name,
             "Trades": s["count"],
@@ -493,32 +555,28 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
             "Worst": round(s["worst_trade"], 2),
         })
 
-    if not rows:
-        return
-
     perf_df = pd.DataFrame(rows).sort_values("P&L", ascending=False).reset_index(drop=True)
-    st.markdown("**Setup Performance**")
+    st.markdown(f"**Setup Performance** -- {len(group_stats)} setup groups, {len(trades)} total trades")
     st.dataframe(perf_df, width="stretch", hide_index=True, key=f"{key_prefix}_setup_perf")
 
-    # Group trades by setup for detailed per-setup expanders
-    from collections import defaultdict
-    trades_by_setup = defaultdict(list)
-    for t in trades:
-        trades_by_setup[t.setup_name].append(t)
+    # Per-group expanders sorted by P&L
+    sorted_groups = sorted(group_stats.keys(), key=lambda n: group_stats[n]["pnl"], reverse=True)
 
-    # Sort setups by total P&L descending (match table order)
-    sorted_setups = sorted(trades_by_setup.keys(),
-                           key=lambda n: setup_stats.get(n, {}).get("pnl", 0), reverse=True)
-
-    for setup_name in sorted_setups:
-        ss = setup_stats.get(setup_name)
-        if not ss:
-            continue
-        st_trades = trades_by_setup[setup_name]
+    for group_name in sorted_groups:
+        ss = group_stats[group_name]
+        st_trades = trades_by_group[group_name]
         pnl_sign = "+" if ss["pnl"] >= 0 else ""
-        label = f"{setup_name}  --  {ss['count']} trades, {pnl_sign}${ss['pnl']:.2f} P&L, {ss['win_rate']:.0%} win rate"
+        label = f"{group_name}  --  {ss['count']} trades, {pnl_sign}${ss['pnl']:.2f} P&L, {ss['win_rate']:.0%} win rate"
+
+        # Safe key: strip special chars
+        safe_key = group_name.replace(" ", "_").replace("(", "").replace(")", "").replace(":", "").replace("+", "")
 
         with st.expander(label, expanded=False):
+            # Show which raw setup names are in this group
+            raw_names = sorted(set(t.setup_name for t in st_trades))
+            if len(raw_names) > 1:
+                st.caption("Includes: " + ", ".join(raw_names))
+
             # Metrics row
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Trades", ss["count"])
@@ -556,7 +614,7 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
                 if dir_rows:
                     st.markdown("**By Direction**")
                     st.dataframe(pd.DataFrame(dir_rows), width="stretch", hide_index=True,
-                                 key=f"{key_prefix}_setup_{setup_name}_dir")
+                                 key=f"{key_prefix}_grp_{safe_key}_dir")
 
             # Cumulative P&L mini-chart for this setup
             if len(st_trades) >= 2:
@@ -576,7 +634,7 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
                     xaxis_title="Trade #", yaxis_title="Cumulative P&L ($/sh)",
                     height=220, margin=dict(l=40, r=20, t=10, b=40),
                 )
-                st.plotly_chart(fig_cum, use_container_width=True, key=f"{key_prefix}_setup_{setup_name}_cum")
+                st.plotly_chart(fig_cum, use_container_width=True, key=f"{key_prefix}_grp_{safe_key}_cum")
 
             # Exit reason breakdown
             exit_counts = defaultdict(int)
@@ -587,7 +645,7 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
                            for k, v in sorted(exit_counts.items(), key=lambda x: -x[1])]
                 st.markdown("**Exit Reasons**")
                 st.dataframe(pd.DataFrame(er_rows), width="stretch", hide_index=True,
-                             key=f"{key_prefix}_setup_{setup_name}_exit")
+                             key=f"{key_prefix}_grp_{safe_key}_exit")
 
 
 def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
@@ -2084,8 +2142,8 @@ def render_backtest():
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Trades", s["total_trades"])
     m2.metric("Win Rate", f"{s['win_rate']:.1%}")
-    m3.metric("Account", f"${final_equity:,.2f}")
-    m4.metric("Return", f"{total_return:+.1f}%")
+    m3.metric("Account", f"${final_equity:,.0f}")
+    m4.metric("Return", f"{total_return:+,.1f}%")
     m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
     m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
 
@@ -2292,8 +2350,8 @@ def render_backtest_daily():
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Trades", s["total_trades"])
     m2.metric("Win Rate", f"{s['win_rate']:.1%}")
-    m3.metric("Account", f"${final_equity:,.2f}")
-    m4.metric("Return", f"{total_return:+.1f}%")
+    m3.metric("Account", f"${final_equity:,.0f}")
+    m4.metric("Return", f"{total_return:+,.1f}%")
     m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
     m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
 
