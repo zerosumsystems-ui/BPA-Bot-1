@@ -1984,30 +1984,36 @@ def render_backtest():
 
     # ── Summary metrics ──
     st.markdown("---")
-    m1, m2, m3, m4, m5 = st.columns(5)
+    curve_df = pd.DataFrame(report["equity_curve"])
+    final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
+    total_return = ((final_equity - 10000) / 10000) * 100
+
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Trades", s["total_trades"])
     m2.metric("Win Rate", f"{s['win_rate']:.1%}")
-    m3.metric("P&L", f"${s['total_pnl']:.2f}/sh")
-    m4.metric("Profit Factor", f"{s['profit_factor']:.2f}")
-    m5.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
+    m3.metric("Account", f"${final_equity:,.2f}")
+    m4.metric("Return", f"{total_return:+.1f}%")
+    m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
+    m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
 
-    m6, m7, m8, m9, m10 = st.columns(5)
-    m6.metric("Avg Win", f"${s['avg_winner']:.2f}")
-    m7.metric("Avg Loss", f"${s['avg_loser']:.2f}")
-    m8.metric("Max DD", f"${s['max_drawdown']:.2f}")
-    m9.metric("Avg R", f"{s['avg_r_multiple']:.2f}R")
-    m10.metric("Bars Held", f"{s['avg_bars_held']:.0f}")
+    m7, m8, m9, m10, m11, m12 = st.columns(6)
+    m7.metric("Avg Win", f"${s['avg_winner']:.2f}/sh")
+    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}/sh")
+    m9.metric("Expectancy", f"${s['expectancy']:.2f}/sh")
+    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}R")
+    m11.metric("Kelly %", f"{s['kelly_pct']:.1f}%")
+    m12.metric("Bars Held", f"{s['avg_bars_held']:.0f}")
 
     # ── Equity curve ──
     st.markdown("---")
-    curve_df = pd.DataFrame(report["equity_curve"])
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines+markers", line=dict(color="#00C853", width=2), marker=dict(size=6), name="Equity",
+        mode="lines+markers", line=dict(color="#00C853", width=2), marker=dict(size=5), name="Account",
     ))
-    fig_eq.add_hline(y=0, line_dash="dash", line_color="gray")
-    fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="P&L ($/share)", height=300, margin=dict(l=40, r=20, t=20, b=40))
+    fig_eq.add_hline(y=10000, line_dash="dash", line_color="gray", annotation_text="$10,000 start")
+    fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="Account Balance ($)", height=300,
+                          margin=dict(l=40, r=20, t=20, b=40))
     st.plotly_chart(fig_eq, use_container_width=True)
 
     # ── Setup Performance ──
@@ -2186,30 +2192,36 @@ def render_backtest_daily():
 
     # ── Combined summary metrics ──
     st.markdown("---")
-    m1, m2, m3, m4, m5 = st.columns(5)
+    curve_df = pd.DataFrame(report["equity_curve"])
+    final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
+    total_return = ((final_equity - 10000) / 10000) * 100
+
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Trades", s["total_trades"])
     m2.metric("Win Rate", f"{s['win_rate']:.1%}")
-    m3.metric("P&L", f"${s['total_pnl']:.2f}/sh")
-    m4.metric("Profit Factor", f"{s['profit_factor']:.2f}")
-    m5.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
+    m3.metric("Account", f"${final_equity:,.2f}")
+    m4.metric("Return", f"{total_return:+.1f}%")
+    m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
+    m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
 
-    m6, m7, m8, m9, m10 = st.columns(5)
-    m6.metric("Avg Win", f"${s['avg_winner']:.2f}")
-    m7.metric("Avg Loss", f"${s['avg_loser']:.2f}")
-    m8.metric("Max DD", f"${s['max_drawdown']:.2f}")
-    m9.metric("Avg R", f"{s['avg_r_multiple']:.2f}R")
-    m10.metric("Days Held", f"{s['avg_bars_held']:.1f}")
+    m7, m8, m9, m10, m11, m12 = st.columns(6)
+    m7.metric("Avg Win", f"${s['avg_winner']:.2f}/sh")
+    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}/sh")
+    m9.metric("Expectancy", f"${s['expectancy']:.2f}/sh")
+    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}R")
+    m11.metric("Kelly %", f"{s['kelly_pct']:.1f}%")
+    m12.metric("Days Held", f"{s['avg_bars_held']:.1f}")
 
     # ── Equity curve ──
     st.markdown("---")
-    curve_df = pd.DataFrame(report["equity_curve"])
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines+markers", line=dict(color="#00C853", width=2), marker=dict(size=4), name="Equity",
+        mode="lines+markers", line=dict(color="#00C853", width=2), marker=dict(size=5), name="Account",
     ))
-    fig_eq.add_hline(y=0, line_dash="dash", line_color="gray")
-    fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="P&L ($/share)", height=300, margin=dict(l=40, r=20, t=20, b=40))
+    fig_eq.add_hline(y=10000, line_dash="dash", line_color="gray", annotation_text="$10,000 start")
+    fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="Account Balance ($)", height=300,
+                          margin=dict(l=40, r=20, t=20, b=40))
     st.plotly_chart(fig_eq, use_container_width=True)
 
     # ── Setup Performance ──
@@ -2241,7 +2253,7 @@ def render_backtest_daily():
                 st.caption("Chart data not available.")
 
     csv_data = trade_df.to_csv(index=False)
-    tickers_label = "_".join(dt_ticker_list[:3]) if dt_ticker_list else "daily"
+    tickers_label = st.session_state.get("dt_ticker_used", "daily")
     st.download_button("Download CSV", csv_data, f"daily_backtest_{tickers_label}_{dt_mode}.csv", "text/csv", key="dt_csv")
 
 

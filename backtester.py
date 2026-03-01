@@ -759,16 +759,34 @@ def _compute_summary(trades: list[Trade], mode: str) -> dict:
     }
 
 
-def _build_equity_curve(trades: list[Trade]) -> list[dict]:
-    """Build an equity curve from trade sequence."""
-    curve = [{"trade_num": 0, "equity": 0.0, "pnl": 0.0}]
-    equity = 0.0
+def _build_equity_curve(trades: list[Trade], starting_capital: float = 10000.0) -> list[dict]:
+    """Build an equity curve from trade sequence.
+
+    Position sizing: for each trade, risk 1% of current account balance.
+    Shares = (account * 0.01) / risk_per_share.
+    Dollar P&L = shares * per-share P&L.
+    """
+    account = starting_capital
+    curve = [{"trade_num": 0, "equity": round(account, 2), "pnl": 0.0,
+              "pnl_pct": 0.0, "shares": 0, "account": round(account, 2)}]
     for i, t in enumerate(trades):
-        equity += t.pnl
+        risk_dollar = account * 0.01  # risk 1% of account
+        if t.risk_per_share > 0:
+            shares = int(risk_dollar / t.risk_per_share)
+        else:
+            shares = int(account / t.entry_price) if t.entry_price > 0 else 0
+        shares = max(shares, 1)  # always at least 1 share
+        dollar_pnl = round(t.pnl * shares, 2)
+        account = round(account + dollar_pnl, 2)
+        pnl_pct = round(dollar_pnl / (account - dollar_pnl) * 100, 2) if (account - dollar_pnl) > 0 else 0.0
         curve.append({
             "trade_num": i + 1,
-            "equity": round(equity, 2),
-            "pnl": round(t.pnl, 2),
+            "equity": account,
+            "pnl": dollar_pnl,
+            "pnl_pct": pnl_pct,
+            "pnl_per_share": round(t.pnl, 2),
+            "shares": shares,
+            "account": account,
             "setup": t.setup_name,
             "direction": t.direction,
             "r_multiple": t.r_multiple,
