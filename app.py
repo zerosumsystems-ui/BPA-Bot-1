@@ -2224,9 +2224,9 @@ def render_backtest_daily():
             report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold,
                                           min_bars_between_trades=dt_gap)
 
-            # Tag each trade with the ticker
+            # Tag each trade with the ticker (keep setup_name clean for grouping)
             for t in report["trades"]:
-                t.setup_name = f"{t.setup_name} [{sym}]"
+                t.ticker = sym
             all_trades.extend(report["trades"])
 
             ts = report["summary"]

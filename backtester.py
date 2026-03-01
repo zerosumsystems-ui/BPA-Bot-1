@@ -854,7 +854,10 @@ def trades_to_dataframe(trades: list[Trade]) -> pd.DataFrame:
     """Convert trade list to a DataFrame for export."""
     rows = []
     for t in trades:
-        rows.append({
+        row = {}
+        if hasattr(t, "ticker") and t.ticker:
+            row["Ticker"] = t.ticker
+        row.update({
             "Setup": t.setup_name,
             "Direction": t.direction,
             "Entry Bar": t.entry_bar,
@@ -879,6 +882,7 @@ def trades_to_dataframe(trades: list[Trade]) -> pd.DataFrame:
             "MAE Bar": t.mae_bar,
             "MFE Bar": t.mfe_bar,
         })
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
