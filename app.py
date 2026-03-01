@@ -1653,54 +1653,75 @@ def render_setups():
             st.warning("Specific definition not found in the encyclopedia. Refer to Al Brooks' books for full details on this setup.")
             
     if find_btn:
+        from app import get_databento_key
+        if not get_databento_key():
+            st.error("⚠️ **DATABENTO_API_KEY is not set.** Please add it to your Render Environment Variables to enable the scanner.")
+            return
+            
         with st.spinner(f"Scanning S&P 500 for a textbook example of {setup_name}..."):
             from algo_engine import analyze_bars
             import datetime as _dt
             tickers = get_sp500_tickers()
             random.shuffle(tickers)
             
+            # Look back 7 days to speed up search and prevent Render timeouts
             end = _dt.date.today()
-            start = end - _dt.timedelta(days=15) # Look back 15 days
+            start = end - _dt.timedelta(days=7) 
             s_end = end.strftime("%Y-%m-%d")
             s_start = start.strftime("%Y-%m-%d")
             
             found_fig = None
             found_ticker = ""
+            consecutive_fails = 0
             
-            # Scan up to 30 random tickers
+            # Scan up to 10 random tickers (to avoid 100s Cloudflare timeout on Render)
             progress_bar = st.progress(0)
-            for i, ticker in enumerate(tickers[:30]):
-                progress_bar.progress((i + 1) / 30)
+            max_tickers = 10
+            for i, ticker in enumerate(tickers[:max_tickers]):
+                progress_bar.progress((i + 1) / max_tickers)
                 try:
                     df = fetch_chart_data_v2(ticker, start_date=s_start, end_date=s_end)
-                    if df is not None and not df.empty:
-                        analysis = analyze_bars(df)
-                        setups = analysis.get("setups", [])
-                        
-                        # Look for our setup
-                        matching = []
-                        for s in setups:
-                            name = getattr(s, "setup_name", None)
-                            if not name and isinstance(s, dict):
-                                name = s.get("setup_name")
-                            if name == setup_name:
-                                matching.append(s)
-                                
-                        if matching:
-                            found_ticker = ticker
-                            # Create a mock analysis with ONLY this setup to highlight it
-                            hl_analysis = {"action": analysis.get("action", ""), "setups": matching}
-                            found_fig = build_chart(df, ticker)
-                            found_fig = _add_annotations(found_fig, df, hl_analysis, best_only=False)
+                    if df is None or df.empty:
+                        consecutive_fails += 1
+                        if consecutive_fails >= 3:
+                            st.error("⚠️ Databento API failed multiple times. Check your API credits or Render logs.")
                             break
+                        continue
+                    
+                    consecutive_fails = 0
+                    analysis = analyze_bars(df)
+                    setups = analysis.get("setups", [])
+                    
+                    # Look for our setup
+                    matching = []
+                    for s in setups:
+                        name = getattr(s, "setup_name", None)
+                        if not name and isinstance(s, dict):
+                            name = s.get("setup_name")
+                        if name == setup_name:
+                            matching.append(s)
+                            
+                    if matching:
+                        found_ticker = ticker
+                        # Create a mock analysis with ONLY this setup to highlight it
+                        hl_analysis = {"action": analysis.get("action", ""), "setups": matching}
+                        found_fig = build_chart(df, ticker)
+                        found_fig = _add_annotations(found_fig, df, hl_analysis, best_only=False)
+                        break
                 except Exception:
-                    pass # Ignore ticker fetch errors during bulk scan
+                    consecutive_fails += 1
+                    if consecutive_fails >= 3:
+                        st.error("⚠️ Databento API failed multiple times. Check your API credits or Render logs.")
+                        break
+                    pass # Ignore single ticker fetch errors
             
             progress_bar.empty()
             
             if found_fig:
-                st.success(f"✅ Found an example of **{setup_name}** on **{found_ticker}** within the last 15 days!")
+                st.success(f"✅ Found an example of **{setup_name}** on **{found_ticker}** within the last 7 days!")
                 st.plotly_chart(found_fig, use_container_width=True)
+            elif consecutive_fails < 3:
+                st.info(f"Could not find a clear example of {setup_name} in the {max_tickers} stocks scanned. Try again to scan different stocks!")
             else:
                 st.error(f"❌ Could not find a recent example of **{setup_name}** in the 30 tickers scanned. The setup might be rare right now.")
 
