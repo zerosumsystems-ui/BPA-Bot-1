@@ -806,7 +806,8 @@ def render_sidebar():
         if user_question:
             st.session_state["chat_history"].append({"role": "user", "content": user_question})
             with st.spinner("Thinking..."):
-                response = asyncio.run(chat_about_chart(user_question, st.session_state["ticker"], st.session_state["chart_df"]))
+                # chat_about_chart is currently unimplemented
+                response = "The AI chat feature is currently undergoing maintenance. Please try again later."
             st.session_state["chat_history"].append({"role": "assistant", "content": response})
             st.rerun()
 
@@ -1621,10 +1622,12 @@ def render_setups():
     
     col1, col2 = st.columns([1, 2])
     with col1:
+        import datetime as _dt
         setup_name = st.selectbox("Select Setup", SETUP_OPTIONS[1:])
+        scan_date = st.date_input("Scan Date", value=_dt.date.today(), help="The scanner will look for setups that occurred on this specific trading day.")
         
         st.markdown("---")
-        st.markdown(f"**Action:** Find a real example of **{setup_name}** in the S&P 500.")
+        st.markdown(f"**Action:** Find a real example of **{setup_name}** in the S&P 500 on {scan_date}.")
         find_btn = st.button("🔎 Find Example", type="primary", use_container_width=True)
         
     with col2:
@@ -1659,18 +1662,16 @@ def render_setups():
             st.error("⚠️ **DATABENTO_API_KEY is not set.** Please add it to your Render Environment Variables to enable the scanner.")
             return
             
-        with st.spinner(f"Scanning the entire S&P 500 for {setup_name} today..."):
+        with st.spinner(f"Scanning the entire S&P 500 for {setup_name} on {scan_date}..."):
             from algo_engine import analyze_bars
-            import datetime as _dt
             from data_source import get_data_source
             
             tickers = get_sp500_tickers()
             
-            # To get today's data, Databento needs a span that covers today. 
-            # We'll use a 4-day lookback to ensure we catch the last trading day even on weekends.
-            today = _dt.date.today()
-            start_date = (today - _dt.timedelta(days=4)).strftime("%Y-%m-%d")
-            end_date = today.strftime("%Y-%m-%d")
+            # Use the selected scan_date instead of today.
+            # We'll use a 4-day lookback to ensure we catch the trading day even if they picked a weekend (we want the Friday before).
+            start_date = (scan_date - _dt.timedelta(days=4)).strftime("%Y-%m-%d")
+            end_date = scan_date.strftime("%Y-%m-%d")
             
             ds = get_data_source(api_key=get_databento_key())
             st.info("Fetching market data (takes ~5 seconds)...")
