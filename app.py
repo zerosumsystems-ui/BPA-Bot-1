@@ -1659,41 +1659,45 @@ def render_setups():
             st.error("⚠️ **DATABENTO_API_KEY is not set.** Please add it to your Render Environment Variables to enable the scanner.")
             return
             
-        with st.spinner(f"Scanning S&P 500 for a textbook example of {setup_name}..."):
+        with st.spinner(f"Scanning the entire S&P 500 for {setup_name} today..."):
             from algo_engine import analyze_bars
             import datetime as _dt
+            from data_source import get_data_source
+            
             tickers = get_sp500_tickers()
-            random.shuffle(tickers)
             
-            # Look back 7 days to speed up search and prevent Render timeouts
-            end = _dt.date.today()
-            start = end - _dt.timedelta(days=7) 
-            s_end = end.strftime("%Y-%m-%d")
-            s_start = start.strftime("%Y-%m-%d")
+            # To get today's data, Databento needs a span that covers today. 
+            # We'll use a 4-day lookback to ensure we catch the last trading day even on weekends.
+            today = _dt.date.today()
+            start_date = (today - _dt.timedelta(days=4)).strftime("%Y-%m-%d")
+            end_date = today.strftime("%Y-%m-%d")
             
-            found_fig = None
-            found_ticker = ""
-            consecutive_fails = 0
+            ds = get_data_source(api_key=get_databento_key())
+            st.info("Fetching market data (takes ~5 seconds)...")
+            bulk_df = ds.get_bulk_chart_data(tickers, start_date, end_date)
             
-            # Scan up to 10 random tickers (to avoid 100s Cloudflare timeout on Render)
-            progress_bar = st.progress(0)
-            max_tickers = 10
-            for i, ticker in enumerate(tickers[:max_tickers]):
-                progress_bar.progress((i + 1) / max_tickers)
+            if bulk_df.empty:
+                st.error("⚠️ Failed to fetch market data from Databento. Check API credits or Render logs.")
+                return
+                
+            found_charts = []
+            
+            # Analyze each symbol
+            grouped = bulk_df.groupby("symbol")
+            
+            progress_bar = st.progress(0, text="Analyzing 500 chart patterns...")
+            total_symbols = len(grouped)
+            
+            if total_symbols == 0:
+                st.error("⚠️ No symbols returned data. The market might be closed or API limits reached.")
+                return
+                
+            for i, (sym, df) in enumerate(grouped):
+                progress_bar.progress((i + 1) / total_symbols, text=f"Analyzing {sym}...")
                 try:
-                    df = fetch_chart_data_v2(ticker, start_date=s_start, end_date=s_end)
-                    if df is None or df.empty:
-                        consecutive_fails += 1
-                        if consecutive_fails >= 3:
-                            st.error("⚠️ Databento API failed multiple times. Check your API credits or Render logs.")
-                            break
-                        continue
-                    
-                    consecutive_fails = 0
                     analysis = analyze_bars(df)
                     setups = analysis.get("setups", [])
                     
-                    # Look for our setup
                     matching = []
                     for s in setups:
                         name = getattr(s, "setup_name", None)
@@ -1703,28 +1707,22 @@ def render_setups():
                             matching.append(s)
                             
                     if matching:
-                        found_ticker = ticker
-                        # Create a mock analysis with ONLY this setup to highlight it
                         hl_analysis = {"action": analysis.get("action", ""), "setups": matching}
-                        found_fig = build_chart(df, ticker)
-                        found_fig = _add_annotations(found_fig, df, hl_analysis, best_only=False)
-                        break
-                except Exception:
-                    consecutive_fails += 1
-                    if consecutive_fails >= 3:
-                        st.error("⚠️ Databento API failed multiple times. Check your API credits or Render logs.")
-                        break
-                    pass # Ignore single ticker fetch errors
+                        fig = build_chart(df, sym)
+                        fig = _add_annotations(fig, df, hl_analysis, best_only=False)
+                        found_charts.append((sym, fig))
+                except Exception as e:
+                    pass
             
             progress_bar.empty()
             
-            if found_fig:
-                st.success(f"✅ Found an example of **{setup_name}** on **{found_ticker}** within the last 7 days!")
-                st.plotly_chart(found_fig, use_container_width=True)
-            elif consecutive_fails < 3:
-                st.info(f"Could not find a clear example of {setup_name} in the {max_tickers} stocks scanned. Try again to scan different stocks!")
+            if found_charts:
+                st.success(f"✅ Found {len(found_charts)} stocks with **{setup_name}** today!")
+                for sym, fig in found_charts:
+                    with st.expander(f"📈 {sym} - {setup_name}", expanded=False):
+                        st.plotly_chart(fig, use_container_width=True)
             else:
-                st.error(f"❌ Could not find a recent example of **{setup_name}** in the 30 tickers scanned. The setup might be rare right now.")
+                st.warning(f"❌ Could not find any examples of **{setup_name}** in the S&P 500 today. The setup might be rare or the market structure doesn't support it right now.")
 
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────

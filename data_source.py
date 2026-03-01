@@ -255,6 +255,112 @@ class DatabentoSource(DataSource):
         logger.error(f"Databento: all schemas failed for {ticker}")
         return None
 
+    def get_bulk_chart_data(self, tickers: list[str], start: str, end: str) -> pd.DataFrame:
+        """
+        Fetch data for multiple tickers concurrently in batches using Databento.
+        Returns a single DataFrame with a 'symbol' column.
+        """
+        if not self._client:
+            return pd.DataFrame()
+
+        dataset = "XNAS.ITCH"
+        schema = "ohlcv-1m"
+        all_dfs = []
+
+        # Convert simple ISO 'YYYY-MM-DD' to exact datetimes needed by XNAS
+        s_dt = datetime.datetime.fromisoformat(start)
+        e_dt = datetime.datetime.fromisoformat(end)
+        db_start = s_dt.strftime("%Y-%m-%dT00:00:00")
+        
+        # Databento needs the end date to be exclusive/next day for full day coverage
+        e_str = e_dt.strftime("%Y-%m-%d")
+        if s_dt.strftime("%Y-%m-%d") == e_str:
+            e_str = (e_dt + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        db_end = f"{e_str}T00:00:00"
+
+        # Split tickers into batches of 50 to avoid any API limits
+        batch_size = 50
+        batches = [tickers[i:i + batch_size] for i in range(0, len(tickers), batch_size)]
+
+        import concurrent.futures
+        def fetch_batch(batch):
+            try:
+                data = self._client.timeseries.get_range(
+                    dataset=dataset,
+                    symbols=batch,
+                    stype_in="raw_symbol",
+                    schema=schema,
+                    start=db_start,
+                    end=db_end,
+                )
+                df = data.to_df()
+                return df
+            except Exception as e:
+                logger.error(f"Databento bulk error on batch: {e}")
+                return pd.DataFrame()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            results = list(executor.map(fetch_batch, batches))
+
+        for df in results:
+            if df is not None and not df.empty:
+                all_dfs.append(df)
+
+        if not all_dfs:
+            return pd.DataFrame()
+
+        big_df = pd.concat(all_dfs)
+        if big_df.empty or "symbol" not in big_df.columns:
+            return pd.DataFrame()
+
+        # Normalize Databento columns
+        rename_map = {"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
+        big_df = big_df.rename(columns=rename_map)
+        
+        keep_cols = ["Open", "High", "Low", "Close", "Volume", "symbol"]
+        available = [c for c in keep_cols if c in big_df.columns]
+        big_df = big_df[available].dropna(subset=["Open", "High", "Low", "Close"])
+
+        if big_df.empty:
+            return pd.DataFrame()
+
+        # Databento returns index as ts_event (UTC)
+        if big_df.index.tzinfo is None:
+            big_df.index = big_df.index.tz_localize("UTC").tz_convert("US/Eastern")
+        else:
+            big_df.index = big_df.index.tz_convert("US/Eastern")
+
+        # Process each symbol: resample to 5min, filter RTH
+        processed_dfs = []
+        for sym, group in big_df.groupby("symbol"):
+            # Resample
+            resampled = group.resample("5min").agg({
+                "Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"
+            }).dropna()
+            
+            # RTH filter
+            resampled = resampled.between_time("09:30", "15:59")
+            if resampled.empty:
+                continue
+                
+            # Keep only the newest day's data
+            resampled["_date"] = resampled.index.date
+            last_day = resampled["_date"].max()
+            resampled = resampled[resampled["_date"] == last_day].drop(columns=["_date"])
+            
+            if resampled.empty:
+                continue
+                
+            # Format output schema
+            resampled["symbol"] = sym
+            resampled["BarNumber"] = range(1, len(resampled) + 1)
+            processed_dfs.append(resampled)
+
+        if not processed_dfs:
+            return pd.DataFrame()
+
+        return pd.concat(processed_dfs)
+
 # ─────────────────────────── FACTORY ─────────────────────────────────────────
 
 def get_data_source(
