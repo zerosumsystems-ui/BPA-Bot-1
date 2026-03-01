@@ -1983,8 +1983,8 @@ def render_backtest():
         bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode",
                                 help="Scalp = 1:1 R/R target. Swing = 2:1 R/R target.")
     with col3:
-        bt_days = st.number_input("Trading Days", min_value=1, max_value=60, value=30, key="bt_days",
-                                   help="Trading days to backtest. 5-min data limited to ~40 days via yFinance.")
+        bt_days = st.number_input("Trading Days", min_value=1, max_value=9999, value=30, key="bt_days",
+                                   help="Trading days to backtest. yFinance 5m data limited to ~60 calendar days. Databento supports longer ranges.")
     with col4:
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("Run Backtest", key="bt_run", type="primary")
@@ -2002,7 +2002,7 @@ def render_backtest():
 
             # Warn about yFinance 60-day limit for 5m data
             if source.name() == "yFinance" and bt_days > 40:
-                st.warning("yFinance only provides ~60 calendar days of 5-min data. Results may cover fewer days than requested.")
+                st.warning("yFinance only provides ~60 calendar days of 5-min data. For longer periods, configure a Databento API key.")
 
             full_df = None
             used_source = source.name()
@@ -2163,12 +2163,12 @@ def render_backtest_daily():
         dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode",
                                 help="Swing = 2:1 R/R target (default for daily). Scalp = 1:1 R/R.")
     with col3:
-        dt_years = st.selectbox("Period", ["2y", "5y", "10y", "1y", "max"], key="dt_period",
+        dt_years = st.selectbox("Period", ["2y", "5y", "10y", "20y", "max", "1y"], key="dt_period",
                                  help="How far back to test. Daily bars from yFinance.")
 
     col4, col5, col6 = st.columns([1, 1, 1])
     with col4:
-        dt_hold = st.number_input("Max Hold (days)", min_value=2, max_value=120, value=15, key="dt_hold",
+        dt_hold = st.number_input("Max Hold (days)", min_value=2, max_value=500, value=15, key="dt_hold",
                                    help="Max trading days to hold before forced exit")
     with col5:
         dt_gap = st.number_input("Min Gap Between Trades", min_value=0, max_value=20, value=3, key="dt_gap",
@@ -2198,7 +2198,7 @@ def render_backtest_daily():
         progress_bar = st.progress(0)
 
         for ti, sym in enumerate(dt_ticker_list):
-            progress_bar.progress((ti) / len(dt_ticker_list), text=f"Backtesting {sym}...")
+            progress_bar.progress((ti) / len(dt_ticker_list), text=f"Backtesting {sym} ({ti+1}/{len(dt_ticker_list)})...")
             try:
                 df = yf.download(sym, period=dt_years, interval="1d", progress=False)
             except Exception as e:
