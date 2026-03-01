@@ -1011,6 +1011,187 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
         elif len(setup_names) > 25:
             st.caption("Too many setups to chart individually. Use the filter above to narrow down.")
 
+    # ── Monte Carlo Simulation ──
+    if len(trades) >= 10:
+        with st.expander("Monte Carlo Simulation", expanded=False):
+            from backtester import run_monte_carlo
+            mc_sims = st.slider("Simulations", min_value=100, max_value=5000, value=1000, step=100,
+                                 key=f"{key_prefix}_mc_sims")
+            if st.button("Run Monte Carlo", key=f"{key_prefix}_mc_run"):
+                with st.spinner("Running Monte Carlo..."):
+                    mc = run_monte_carlo(trades, n_simulations=mc_sims)
+                    st.session_state[f"{key_prefix}_mc_result"] = mc
+
+            mc = st.session_state.get(f"{key_prefix}_mc_result")
+            if mc:
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                mc1.metric("Median Final Equity", f"${mc['median_final_equity']:,.0f}")
+                mc2.metric("Worst Case (5th %ile)", f"${mc['p5_final_equity']:,.0f}")
+                mc3.metric("Best Case (95th %ile)", f"${mc['p95_final_equity']:,.0f}")
+                mc4.metric("Risk of Ruin", f"{mc['risk_of_ruin_pct']:.1f}%")
+
+                mc5, mc6, mc7 = st.columns(3)
+                mc5.metric("Median Max DD", f"${mc['median_max_dd']:,.0f}")
+                mc6.metric("Worst Max DD (95th %ile)", f"${mc['p95_max_dd']:,.0f}")
+                mc7.metric("Avg DD Duration", f"{mc['avg_max_dd_duration']:.0f} trades")
+
+                # Equity distribution histogram
+                fig_mc = go.Figure()
+                fig_mc.add_trace(go.Histogram(x=mc["all_final_equities"], nbinsx=50,
+                                               marker_color="#2196F3", name="Final Equity"))
+                fig_mc.add_vline(x=10000, line_dash="dash", line_color="gray",
+                                  annotation_text="$10,000 start")
+                fig_mc.update_layout(xaxis_title="Final Equity ($)", yaxis_title="Frequency",
+                                      height=280, margin=dict(l=40, r=20, t=10, b=40))
+                st.plotly_chart(fig_mc, use_container_width=True, key=f"{key_prefix}_mc_hist")
+
+                # Max drawdown distribution
+                fig_dd = go.Figure()
+                fig_dd.add_trace(go.Histogram(x=mc["all_max_drawdowns"], nbinsx=40,
+                                               marker_color="#FF5722", name="Max Drawdown"))
+                fig_dd.update_layout(xaxis_title="Max Drawdown ($)", yaxis_title="Frequency",
+                                      height=250, margin=dict(l=40, r=20, t=10, b=40))
+                st.plotly_chart(fig_dd, use_container_width=True, key=f"{key_prefix}_mc_dd_hist")
+
+    # ── Walk-Forward Analysis ──
+    if len(trades) >= 20:
+        with st.expander("Walk-Forward Analysis", expanded=False):
+            from backtester import run_walk_forward
+            wf_folds = st.slider("Folds", min_value=3, max_value=10, value=5,
+                                  key=f"{key_prefix}_wf_folds")
+            if st.button("Run Walk-Forward", key=f"{key_prefix}_wf_run"):
+                with st.spinner("Running walk-forward analysis..."):
+                    wf = run_walk_forward(trades, n_folds=wf_folds)
+                    st.session_state[f"{key_prefix}_wf_result"] = wf
+
+            wf = st.session_state.get(f"{key_prefix}_wf_result")
+            if wf:
+                wf1, wf2, wf3, wf4 = st.columns(4)
+                wf1.metric("IS Win Rate", f"{wf['avg_is_win_rate']:.1%}")
+                wf2.metric("OOS Win Rate", f"{wf['avg_oos_win_rate']:.1%}")
+                wf3.metric("Degradation", f"{wf['degradation_pct']:.1f}%")
+                robust_label = "ROBUST" if wf["is_robust"] else "WEAK"
+                wf4.metric("Robustness", robust_label)
+
+                wf5, wf6 = st.columns(2)
+                wf5.metric("IS Profit Factor", f"{wf['avg_is_pf']:.2f}")
+                wf6.metric("OOS Profit Factor", f"{wf['avg_oos_pf']:.2f}")
+
+                # Fold-by-fold table
+                fold_rows = []
+                for i, fold in enumerate(wf["folds"]):
+                    fold_rows.append({
+                        "Fold": i + 1,
+                        "IS Trades": fold["in_sample"]["total_trades"],
+                        "IS Win %": f"{fold['in_sample']['win_rate']:.0%}",
+                        "IS PF": round(fold["in_sample"]["profit_factor"], 2),
+                        "OOS Trades": fold["out_of_sample"]["total_trades"],
+                        "OOS Win %": f"{fold['out_of_sample']['win_rate']:.0%}",
+                        "OOS PF": round(fold["out_of_sample"]["profit_factor"], 2),
+                    })
+                st.dataframe(pd.DataFrame(fold_rows), width="stretch", hide_index=True,
+                             key=f"{key_prefix}_wf_folds_table")
+
+    # ── Rolling Sharpe Ratio ──
+    if len(trades) >= 30:
+        with st.expander("Rolling Performance", expanded=False):
+            window = min(50, len(trades) // 3)
+            pnl_series = pd.Series([t.pnl for t in trades])
+            rolling_mean = pnl_series.rolling(window).mean()
+            rolling_std = pnl_series.rolling(window).std()
+            rolling_sharpe = (rolling_mean / rolling_std).fillna(0)
+
+            fig_rs = go.Figure()
+            fig_rs.add_trace(go.Scatter(
+                x=list(range(1, len(rolling_sharpe) + 1)), y=rolling_sharpe,
+                mode="lines", line=dict(color="#2196F3", width=2), name=f"Rolling Sharpe ({window})",
+            ))
+            fig_rs.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig_rs.update_layout(xaxis_title="Trade #", yaxis_title="Sharpe Ratio",
+                                  height=250, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_rs, use_container_width=True, key=f"{key_prefix}_rolling_sharpe")
+
+            # Rolling win rate
+            rolling_wr = pnl_series.apply(lambda x: 1 if x > 0 else 0).rolling(window).mean().fillna(0)
+            fig_rwr = go.Figure()
+            fig_rwr.add_trace(go.Scatter(
+                x=list(range(1, len(rolling_wr) + 1)), y=rolling_wr * 100,
+                mode="lines", line=dict(color="#00C853", width=2), name=f"Rolling Win Rate ({window})",
+            ))
+            fig_rwr.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="50%")
+            fig_rwr.update_layout(xaxis_title="Trade #", yaxis_title="Win Rate (%)",
+                                   height=250, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_rwr, use_container_width=True, key=f"{key_prefix}_rolling_wr")
+
+    # ── Drawdown Analysis ──
+    if len(trades) >= 5:
+        with st.expander("Drawdown Analysis", expanded=False):
+            eq = 0.0
+            peak = 0.0
+            dd_series = []
+            dd_durations = []
+            current_dd_start = None
+            for i, t in enumerate(trades):
+                eq += t.pnl
+                if eq > peak:
+                    peak = eq
+                    if current_dd_start is not None:
+                        dd_durations.append(i - current_dd_start)
+                        current_dd_start = None
+                dd = peak - eq
+                if dd > 0 and current_dd_start is None:
+                    current_dd_start = i
+                dd_series.append(-dd)
+
+            fig_dda = go.Figure()
+            fig_dda.add_trace(go.Scatter(
+                x=list(range(1, len(dd_series) + 1)), y=dd_series,
+                mode="lines", fill="tozeroy", line=dict(color="#FF1744", width=1),
+                fillcolor="rgba(255,23,68,0.3)", name="Drawdown",
+            ))
+            fig_dda.update_layout(xaxis_title="Trade #", yaxis_title="Drawdown ($/sh)",
+                                   height=250, margin=dict(l=40, r=20, t=10, b=40))
+            st.plotly_chart(fig_dda, use_container_width=True, key=f"{key_prefix}_dd_chart")
+
+            if dd_durations:
+                avg_dd_dur = sum(dd_durations) / len(dd_durations)
+                max_dd_dur = max(dd_durations)
+                dd1, dd2, dd3 = st.columns(3)
+                dd1.metric("Avg DD Duration", f"{avg_dd_dur:.0f} trades")
+                dd2.metric("Max DD Duration", f"{max_dd_dur} trades")
+                dd3.metric("DD Periods", len(dd_durations))
+
+    # ── Time of Day Analysis (for intraday) ──
+    if len(trades) >= 10 and tdf["date"].dtype != "object":
+        times = []
+        for t in trades:
+            if t.entry_time and len(t.entry_time) >= 16:
+                try:
+                    hour = int(t.entry_time[11:13])
+                    times.append(hour)
+                except (ValueError, IndexError):
+                    pass
+        if times and max(times) - min(times) > 1:
+            with st.expander("Time of Day Analysis", expanded=False):
+                hour_df = pd.DataFrame({"hour": times, "pnl": [t.pnl for t, h in zip(trades, times)][:len(times)]})
+                hourly = hour_df.groupby("hour").agg(
+                    trades=("pnl", "count"),
+                    total_pnl=("pnl", "sum"),
+                    win_rate=("pnl", lambda x: (x > 0).mean()),
+                ).reset_index()
+                hourly.columns = ["Hour", "Trades", "P&L", "Win Rate"]
+                hourly["Win Rate"] = hourly["Win Rate"].apply(lambda x: f"{x:.0%}")
+                hourly["P&L"] = hourly["P&L"].round(2)
+
+                fig_tod = go.Figure()
+                colors = ["#00C853" if v >= 0 else "#FF1744" for v in hourly["P&L"]]
+                fig_tod.add_trace(go.Bar(x=hourly["Hour"], y=hourly["P&L"],
+                                          marker_color=colors, name="P&L by Hour"))
+                fig_tod.update_layout(xaxis_title="Hour (ET)", yaxis_title="Total P&L ($/sh)",
+                                       height=280, margin=dict(l=40, r=20, t=10, b=40))
+                st.plotly_chart(fig_tod, use_container_width=True, key=f"{key_prefix}_tod_chart")
+                st.dataframe(hourly, width="stretch", hide_index=True, key=f"{key_prefix}_tod_table")
+
 
 # ─────────────────────────── ENCYCLOPEDIA CACHE ──────────────────────────────
 
@@ -2047,6 +2228,16 @@ def render_backtest():
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("Run Backtest", key="bt_run", type="primary")
 
+    # Advanced settings
+    with st.expander("Advanced Settings", expanded=False):
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            bt_slippage = st.number_input("Slippage ($/share)", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="bt_slippage",
+                                           help="Simulated slippage per fill (applied to entry and exit)")
+        with ac2:
+            bt_commission = st.number_input("Commission ($/share/side)", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="bt_commission",
+                                             help="Commission per share per side (entry + exit)")
+
     if run_btn:
         with st.spinner(f"Backtesting {bt_ticker} over {bt_days} days ({bt_mode} mode)..."):
             source = _init_data_source_v2()
@@ -2116,7 +2307,8 @@ def render_backtest():
             if len(daily_dfs) < bt_days:
                 st.caption(f"Got **{len(daily_dfs)}** trading days of data (requested {bt_days})")
 
-            report = run_multi_day_backtest(daily_dfs, mode=bt_mode)
+            report = run_multi_day_backtest(daily_dfs, mode=bt_mode,
+                                                   slippage=bt_slippage, commission=bt_commission)
             st.session_state["bt_report"] = report
             st.session_state["bt_daily_dfs"] = daily_dfs
             st.session_state["bt_ticker_used"] = bt_ticker
@@ -2235,6 +2427,16 @@ def render_backtest_daily():
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("Run Backtest", key="dt_run", type="primary")
 
+    # Advanced settings
+    with st.expander("Advanced Settings", expanded=False):
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            dt_slippage = st.number_input("Slippage ($/share)", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="dt_slippage",
+                                           help="Simulated slippage per fill")
+        with dc2:
+            dt_commission = st.number_input("Commission ($/share/side)", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="dt_commission",
+                                             help="Commission per share per side")
+
     # Parse tickers
     dt_ticker_list = [t.strip().upper() for t in dt_tickers_raw.split(",") if t.strip()]
 
@@ -2280,7 +2482,8 @@ def render_backtest_daily():
                 continue
 
             report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold,
-                                          min_bars_between_trades=dt_gap)
+                                          min_bars_between_trades=dt_gap,
+                                          slippage=dt_slippage, commission=dt_commission)
 
             # Tag each trade with the ticker (keep setup_name clean for grouping)
             for t in report["trades"]:

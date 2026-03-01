@@ -45,7 +45,7 @@ class Trade:
     exit_bar: int = 0
     exit_price: float = 0.0
     exit_time: str = ""
-    exit_reason: str = ""    # "scalp_target", "swing_target", "stop_loss", "eod_close"
+    exit_reason: str = ""    # "scalp_target", "swing_target", "stop_loss", "eod_close", "unfilled"
     pnl: float = 0.0
     r_multiple: float = 0.0  # P&L expressed as multiple of risk
     is_winner: bool = False
@@ -108,20 +108,79 @@ def calculate_al_brooks_levels(
 
 # ─────────────────────────── TRADE SIMULATOR ─────────────────────────────────
 
+def _check_limit_order_fill(
+    trade: Trade,
+    bars: list[Bar],
+    look_ahead: int = 3,
+) -> tuple[bool, int]:
+    """
+    Check if a limit order gets filled within look_ahead bars.
+
+    For Long: bar's LOW must touch or go below the limit entry price.
+    For Short: bar's HIGH must touch or go above the limit entry price.
+
+    Returns: (is_filled, bar_index)
+    bar_index is the index where it was filled, or -1 if not filled.
+    """
+    start_idx = trade.entry_bar
+    end_idx = min(start_idx + look_ahead, len(bars))
+
+    for i in range(start_idx, end_idx):
+        bar = bars[i]
+        if trade.direction == "Long":
+            # For long limit, price must come DOWN to the buy price
+            if bar.low <= trade.entry_price:
+                return (True, i)
+        else:  # Short
+            # For short limit, price must come UP to the sell price
+            if bar.high >= trade.entry_price:
+                return (True, i)
+
+    return (False, -1)
+
+
 def simulate_trade(
     trade: Trade,
     bars: list[Bar],
     timestamps: list[str],
     mode: str = "scalp",
+    slippage: float = 0.0,
+    commission: float = 0.0,
 ) -> Trade:
     """
     Walk forward through bars after entry to determine trade outcome.
     Tracks MAE (Maximum Adverse Excursion) and MFE (Maximum Favorable Excursion).
 
+    For limit orders: checks if price touches the entry within 3 bars.
+    For stop orders: uses existing logic.
+
+    Applies slippage and commission to entry and exit prices.
+
     mode: "scalp" uses 1:1 target, "swing" uses 2:1 target.
+    slippage: dollars per share, applied to entry and exit (worse fill)
+    commission: dollars per share per side (total = 2 * commission * shares)
     """
     target = trade.scalp_target if mode == "scalp" else trade.swing_target
     start_idx = trade.entry_bar  # entry_bar is 1-indexed, bars list is 0-indexed
+
+    # ─── LIMIT ORDER FILL CHECK ───
+    if trade.order_type == "Limit":
+        filled, fill_idx = _check_limit_order_fill(trade, bars, look_ahead=3)
+        if not filled:
+            # Mark as unfilled
+            trade.exit_reason = "unfilled"
+            trade.pnl = 0.0
+            trade.r_multiple = 0.0
+            trade.is_winner = False
+            trade.bars_held = 0
+            trade.mae = 0.0
+            trade.mfe = 0.0
+            trade.mae_bar = 0
+            trade.mfe_bar = 0
+            trade.mae_r = 0.0
+            trade.mfe_r = 0.0
+            return trade
+        start_idx = fill_idx  # Start tracking from fill bar
 
     # Track MAE/MFE through the life of the trade
     max_adverse = 0.0   # Worst unrealized loss (positive number = bad)
@@ -129,16 +188,23 @@ def simulate_trade(
     mae_bar_idx = start_idx
     mfe_bar_idx = start_idx
 
+    # Apply slippage to entry price
+    adjusted_entry = trade.entry_price
+    if trade.direction == "Long":
+        adjusted_entry += slippage  # Long: slippage makes entry worse (higher)
+    else:
+        adjusted_entry -= slippage  # Short: slippage makes entry worse (lower)
+
     for i in range(start_idx, len(bars)):
         bar = bars[i]
 
         # Calculate unrealized P&L extremes for MAE/MFE
         if trade.direction == "Long":
-            adverse = trade.entry_price - bar.low    # How far price dropped below entry
-            favorable = bar.high - trade.entry_price  # How far price rose above entry
+            adverse = adjusted_entry - bar.low    # How far price dropped below entry
+            favorable = bar.high - adjusted_entry  # How far price rose above entry
         else:
-            adverse = bar.high - trade.entry_price   # How far price rose above entry (bad for short)
-            favorable = trade.entry_price - bar.low   # How far price dropped below entry (good for short)
+            adverse = bar.high - adjusted_entry   # How far price rose above entry (bad for short)
+            favorable = adjusted_entry - bar.low   # How far price dropped below entry (good for short)
 
         if adverse > max_adverse:
             max_adverse = adverse
@@ -150,51 +216,65 @@ def simulate_trade(
         if trade.direction == "Long":
             # Check stop first (conservative — assumes adverse fill first)
             if bar.low <= trade.stop_loss:
+                exit_price = trade.stop_loss - slippage  # Slippage worsens exit
                 trade.exit_bar = bar.idx
-                trade.exit_price = trade.stop_loss
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = "stop_loss"
-                trade.pnl = round(trade.stop_loss - trade.entry_price, 2)
+                trade.pnl = round(exit_price - adjusted_entry, 2)
                 break
 
             # Check target
             if bar.high >= target:
+                exit_price = target - slippage  # Slippage worsens exit
                 trade.exit_bar = bar.idx
-                trade.exit_price = target
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = f"{mode}_target"
-                trade.pnl = round(target - trade.entry_price, 2)
+                trade.pnl = round(exit_price - adjusted_entry, 2)
                 break
 
         else:  # Short
             # Check stop first
             if bar.high >= trade.stop_loss:
+                exit_price = trade.stop_loss + slippage  # Slippage worsens exit
                 trade.exit_bar = bar.idx
-                trade.exit_price = trade.stop_loss
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = "stop_loss"
-                trade.pnl = round(trade.entry_price - trade.stop_loss, 2)
+                trade.pnl = round(adjusted_entry - exit_price, 2)
                 break
 
             # Check target
             if bar.low <= target:
+                exit_price = target + slippage  # Slippage worsens exit
                 trade.exit_bar = bar.idx
-                trade.exit_price = target
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = f"{mode}_target"
-                trade.pnl = round(trade.entry_price - target, 2)
+                trade.pnl = round(adjusted_entry - exit_price, 2)
                 break
     else:
         # End of day — close at last bar's close
         last = bars[-1]
+        exit_price = last.close
+        if trade.direction == "Long":
+            exit_price -= slippage  # Slippage worsens exit
+        else:
+            exit_price += slippage  # Slippage worsens exit
+
         trade.exit_bar = last.idx
-        trade.exit_price = last.close
+        trade.exit_price = round(exit_price, 2)
         trade.exit_time = timestamps[-1] if timestamps else ""
         trade.exit_reason = "eod_close"
         if trade.direction == "Long":
-            trade.pnl = round(last.close - trade.entry_price, 2)
+            trade.pnl = round(exit_price - adjusted_entry, 2)
         else:
-            trade.pnl = round(trade.entry_price - last.close, 2)
+            trade.pnl = round(adjusted_entry - exit_price, 2)
+
+    # Apply commission (2 sides)
+    commission_cost = 2 * commission
+    trade.pnl = round(trade.pnl - commission_cost, 2)
 
     trade.is_winner = trade.pnl > 0
     trade.bars_held = trade.exit_bar - trade.entry_bar
@@ -222,6 +302,8 @@ def run_backtest(
     df: pd.DataFrame,
     mode: str = "scalp",
     min_bars_between_trades: int = 3,
+    slippage: float = 0.0,
+    commission: float = 0.0,
 ) -> dict:
     """
     Run a full backtest on a single day of 5-min OHLCV data.
@@ -296,7 +378,7 @@ def run_backtest(
         )
 
         # Simulate the trade
-        trade = simulate_trade(trade, bars, timestamps, mode=mode)
+        trade = simulate_trade(trade, bars, timestamps, mode=mode, slippage=slippage, commission=commission)
         trades.append(trade)
         last_entry_bar = entry_bar_num
 
@@ -316,6 +398,8 @@ def run_multi_day_backtest(
     daily_dataframes: dict[str, pd.DataFrame],
     mode: str = "scalp",
     min_bars_between_trades: int = 3,
+    slippage: float = 0.0,
+    commission: float = 0.0,
 ) -> dict:
     """
     Run backtest across multiple days of data.
@@ -323,6 +407,8 @@ def run_multi_day_backtest(
     Args:
         daily_dataframes: dict of {date_str: DataFrame} for each trading day
         mode: "scalp" (1:1) or "swing" (2:1)
+        slippage: dollars per share applied to entries and exits
+        commission: dollars per share per side
 
     Returns:
         Aggregated report across all days.
@@ -331,7 +417,7 @@ def run_multi_day_backtest(
     daily_results: list[dict] = []
 
     for date_str, df in sorted(daily_dataframes.items()):
-        result = run_backtest(df, mode, min_bars_between_trades)
+        result = run_backtest(df, mode, min_bars_between_trades, slippage, commission)
         day_trades = result["trades"]
         all_trades.extend(day_trades)
         daily_results.append({
@@ -364,6 +450,8 @@ def run_daily_backtest(
     mode: str = "swing",
     min_bars_between_trades: int = 2,
     hold_limit: int = 20,
+    slippage: float = 0.0,
+    commission: float = 0.0,
 ) -> dict:
     """
     Run a backtest on DAILY bars (one bar per trading day).
@@ -376,6 +464,8 @@ def run_daily_backtest(
         mode: "scalp" (1:1 R/R) or "swing" (2:1 R/R)
         min_bars_between_trades: min days between entries
         hold_limit: max days to hold a single trade before forced exit
+        slippage: dollars per share applied to entries and exits
+        commission: dollars per share per side
 
     Returns:
         dict with keys: trades, summary, equity_curve, analysis
@@ -447,7 +537,7 @@ def run_daily_backtest(
         )
 
         # Simulate — but with a hold limit instead of EOD close
-        trade = _simulate_daily_trade(trade, bars, timestamps, mode=mode, hold_limit=hold_limit)
+        trade = _simulate_daily_trade(trade, bars, timestamps, mode=mode, hold_limit=hold_limit, slippage=slippage, commission=commission)
         trades.append(trade)
         last_exit_bar = trade.exit_bar
 
@@ -469,28 +559,59 @@ def _simulate_daily_trade(
     timestamps: list[str],
     mode: str = "swing",
     hold_limit: int = 20,
+    slippage: float = 0.0,
+    commission: float = 0.0,
 ) -> Trade:
     """
     Walk forward through DAILY bars. Same logic as simulate_trade but
     instead of EOD close, we use a hold_limit (max bars in trade).
+
+    For limit orders: checks if price touches the entry within 3 bars.
+    Applies slippage and commission.
     """
     target = trade.scalp_target if mode == "scalp" else trade.swing_target
     start_idx = trade.entry_bar  # 1-indexed, bars list is 0-indexed
+
+    # ─── LIMIT ORDER FILL CHECK ───
+    if trade.order_type == "Limit":
+        filled, fill_idx = _check_limit_order_fill(trade, bars, look_ahead=3)
+        if not filled:
+            # Mark as unfilled
+            trade.exit_reason = "unfilled"
+            trade.pnl = 0.0
+            trade.r_multiple = 0.0
+            trade.is_winner = False
+            trade.bars_held = 0
+            trade.mae = 0.0
+            trade.mfe = 0.0
+            trade.mae_bar = 0
+            trade.mfe_bar = 0
+            trade.mae_r = 0.0
+            trade.mfe_r = 0.0
+            return trade
+        start_idx = fill_idx  # Start tracking from fill bar
 
     max_adverse = 0.0
     max_favorable = 0.0
     mae_bar_idx = start_idx
     mfe_bar_idx = start_idx
 
+    # Apply slippage to entry price
+    adjusted_entry = trade.entry_price
+    if trade.direction == "Long":
+        adjusted_entry += slippage  # Long: slippage makes entry worse (higher)
+    else:
+        adjusted_entry -= slippage  # Short: slippage makes entry worse (lower)
+
     for i in range(start_idx, min(start_idx + hold_limit, len(bars))):
         bar = bars[i]
 
         if trade.direction == "Long":
-            adverse = trade.entry_price - bar.low
-            favorable = bar.high - trade.entry_price
+            adverse = adjusted_entry - bar.low
+            favorable = bar.high - adjusted_entry
         else:
-            adverse = bar.high - trade.entry_price
-            favorable = trade.entry_price - bar.low
+            adverse = bar.high - adjusted_entry
+            favorable = adjusted_entry - bar.low
 
         if adverse > max_adverse:
             max_adverse = adverse
@@ -501,46 +622,60 @@ def _simulate_daily_trade(
 
         if trade.direction == "Long":
             if bar.low <= trade.stop_loss:
+                exit_price = trade.stop_loss - slippage
                 trade.exit_bar = bar.idx
-                trade.exit_price = trade.stop_loss
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = "stop_loss"
-                trade.pnl = round(trade.stop_loss - trade.entry_price, 2)
+                trade.pnl = round(exit_price - adjusted_entry, 2)
                 break
             if bar.high >= target:
+                exit_price = target - slippage
                 trade.exit_bar = bar.idx
-                trade.exit_price = target
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = f"{mode}_target"
-                trade.pnl = round(target - trade.entry_price, 2)
+                trade.pnl = round(exit_price - adjusted_entry, 2)
                 break
         else:
             if bar.high >= trade.stop_loss:
+                exit_price = trade.stop_loss + slippage
                 trade.exit_bar = bar.idx
-                trade.exit_price = trade.stop_loss
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = "stop_loss"
-                trade.pnl = round(trade.entry_price - trade.stop_loss, 2)
+                trade.pnl = round(adjusted_entry - exit_price, 2)
                 break
             if bar.low <= target:
+                exit_price = target + slippage
                 trade.exit_bar = bar.idx
-                trade.exit_price = target
+                trade.exit_price = round(exit_price, 2)
                 trade.exit_time = timestamps[i] if i < len(timestamps) else ""
                 trade.exit_reason = f"{mode}_target"
-                trade.pnl = round(trade.entry_price - target, 2)
+                trade.pnl = round(adjusted_entry - exit_price, 2)
                 break
     else:
         # Hit hold limit — close at last bar's close
         last_idx = min(start_idx + hold_limit - 1, len(bars) - 1)
         last = bars[last_idx]
+        exit_price = last.close
+        if trade.direction == "Long":
+            exit_price -= slippage
+        else:
+            exit_price += slippage
+
         trade.exit_bar = last.idx
-        trade.exit_price = last.close
+        trade.exit_price = round(exit_price, 2)
         trade.exit_time = timestamps[last_idx] if last_idx < len(timestamps) else ""
         trade.exit_reason = "hold_limit"
         if trade.direction == "Long":
-            trade.pnl = round(last.close - trade.entry_price, 2)
+            trade.pnl = round(exit_price - adjusted_entry, 2)
         else:
-            trade.pnl = round(trade.entry_price - last.close, 2)
+            trade.pnl = round(adjusted_entry - exit_price, 2)
+
+    # Apply commission (2 sides)
+    commission_cost = 2 * commission
+    trade.pnl = round(trade.pnl - commission_cost, 2)
 
     trade.is_winner = trade.pnl > 0
     trade.bars_held = trade.exit_bar - trade.entry_bar
@@ -559,6 +694,236 @@ def _simulate_daily_trade(
     trade.mfe_bar = bars[mfe_bar_idx].idx if mfe_bar_idx < len(bars) else 0
 
     return trade
+
+
+# ─────────────────────────── MONTE CARLO & RISK ANALYSIS ─────────────────────
+
+def run_monte_carlo(
+    trades: list[Trade],
+    n_simulations: int = 1000,
+    starting_capital: float = 10000.0,
+) -> dict:
+    """
+    Run Monte Carlo simulation on trade sequence to estimate distribution of outcomes.
+
+    Randomly shuffles trade order n_simulations times and computes equity curves.
+    Tracks final equity, max drawdown, and drawdown duration for each simulation.
+
+    Args:
+        trades: list of completed Trade objects
+        n_simulations: number of random shuffles to run
+        starting_capital: starting account balance
+
+    Returns:
+        dict with percentiles, risk metrics, and all equity/drawdown values
+    """
+    if not trades:
+        return {
+            "median_final_equity": starting_capital,
+            "p5_final_equity": starting_capital,
+            "p95_final_equity": starting_capital,
+            "median_max_dd": 0.0,
+            "p95_max_dd": 0.0,
+            "risk_of_ruin_pct": 0.0,
+            "avg_max_dd_duration": 0,
+            "all_final_equities": [starting_capital],
+            "all_max_drawdowns": [0.0],
+        }
+
+    all_final_equities = []
+    all_max_drawdowns = []
+    all_dd_durations = []
+    ruin_count = 0
+    ruin_threshold = starting_capital * 0.5
+
+    for _ in range(n_simulations):
+        # Shuffle trades randomly
+        shuffled_trades = trades.copy()
+        np.random.shuffle(shuffled_trades)
+
+        # Build equity curve for this shuffle
+        equity_curve = _build_equity_curve(shuffled_trades, starting_capital)
+
+        # Extract final equity
+        final_equity = equity_curve[-1]["equity"] if equity_curve else starting_capital
+        all_final_equities.append(final_equity)
+
+        # Track if ruin occurred (dropped below 50% of starting capital)
+        if final_equity < ruin_threshold:
+            ruin_count += 1
+
+        # Calculate max drawdown and duration
+        max_dd = 0.0
+        peak_equity = starting_capital
+        dd_duration = 0
+        max_dd_duration = 0
+        current_dd_duration = 0
+
+        for point in equity_curve[1:]:  # Skip initial point
+            equity = point["equity"]
+            if equity > peak_equity:
+                peak_equity = equity
+                # Reset duration counters if we broke the drawdown
+                if current_dd_duration > 0:
+                    max_dd_duration = max(max_dd_duration, current_dd_duration)
+                    current_dd_duration = 0
+
+            dd = peak_equity - equity
+            if dd > 0:
+                current_dd_duration += 1
+
+            if dd > max_dd:
+                max_dd = dd
+
+        max_dd_duration = max(max_dd_duration, current_dd_duration)
+        all_max_drawdowns.append(max_dd)
+        all_dd_durations.append(max_dd_duration)
+
+    # Compute percentiles
+    final_equities_sorted = sorted(all_final_equities)
+    drawdowns_sorted = sorted(all_max_drawdowns)
+
+    p5_idx = max(0, int(len(final_equities_sorted) * 0.05))
+    p95_idx = min(len(final_equities_sorted) - 1, int(len(final_equities_sorted) * 0.95))
+
+    p5_final = final_equities_sorted[p5_idx]
+    p95_final = final_equities_sorted[p95_idx]
+    median_final = final_equities_sorted[len(final_equities_sorted) // 2]
+
+    p95_dd_idx = min(len(drawdowns_sorted) - 1, int(len(drawdowns_sorted) * 0.95))
+    median_max_dd = drawdowns_sorted[len(drawdowns_sorted) // 2]
+    p95_max_dd = drawdowns_sorted[p95_dd_idx]
+
+    avg_dd_duration = int(np.mean(all_dd_durations)) if all_dd_durations else 0
+    risk_of_ruin_pct = (ruin_count / n_simulations) * 100 if n_simulations > 0 else 0.0
+
+    return {
+        "median_final_equity": round(median_final, 2),
+        "p5_final_equity": round(p5_final, 2),
+        "p95_final_equity": round(p95_final, 2),
+        "median_max_dd": round(median_max_dd, 2),
+        "p95_max_dd": round(p95_max_dd, 2),
+        "risk_of_ruin_pct": round(risk_of_ruin_pct, 1),
+        "avg_max_dd_duration": avg_dd_duration,
+        "all_final_equities": [round(x, 2) for x in all_final_equities],
+        "all_max_drawdowns": [round(x, 2) for x in all_max_drawdowns],
+    }
+
+
+# ─────────────────────────── WALK-FORWARD TESTING ──────────────────────────────
+
+def run_walk_forward(
+    trades: list[Trade],
+    n_folds: int = 5,
+    mode: str = "swing",
+) -> dict:
+    """
+    Run walk-forward analysis to test robustness out-of-sample.
+
+    Splits trades chronologically into n_folds. For each fold:
+      - Uses all OTHER folds as "in-sample"
+      - Uses this fold as "out-of-sample"
+
+    Compares performance metrics IS vs OOS to detect overfitting.
+
+    Args:
+        trades: list of completed Trade objects (should be in chronological order)
+        n_folds: number of folds for cross-validation
+        mode: "scalp" or "swing" for target mode
+
+    Returns:
+        dict with fold results and robustness metrics
+    """
+    if not trades or n_folds < 2:
+        return {
+            "folds": [],
+            "avg_is_win_rate": 0.0,
+            "avg_oos_win_rate": 0.0,
+            "degradation_pct": 0.0,
+            "avg_is_pf": 1.0,
+            "avg_oos_pf": 1.0,
+            "is_robust": False,
+        }
+
+    # Split trades into folds chronologically
+    fold_size = len(trades) // n_folds
+    folds = []
+    for i in range(n_folds):
+        if i == n_folds - 1:
+            # Last fold gets remaining trades
+            fold = trades[i * fold_size:]
+        else:
+            fold = trades[i * fold_size:(i + 1) * fold_size]
+        folds.append(fold)
+
+    fold_results = []
+    all_is_win_rates = []
+    all_oos_win_rates = []
+    all_is_pf = []
+    all_oos_pf = []
+
+    for oos_idx in range(n_folds):
+        # In-sample: all folds except oos_idx
+        is_trades = []
+        for i in range(n_folds):
+            if i != oos_idx:
+                is_trades.extend(folds[i])
+
+        # Out-of-sample: fold at oos_idx
+        oos_trades = folds[oos_idx]
+
+        # Compute summaries
+        is_summary = _compute_summary(is_trades, mode)
+        oos_summary = _compute_summary(oos_trades, mode)
+
+        is_win_rate = is_summary["win_rate"]
+        oos_win_rate = oos_summary["win_rate"]
+        is_pf = is_summary["profit_factor"]
+        oos_pf = oos_summary["profit_factor"]
+
+        all_is_win_rates.append(is_win_rate)
+        all_oos_win_rates.append(oos_win_rate)
+        all_is_pf.append(is_pf)
+        all_oos_pf.append(oos_pf)
+
+        fold_results.append({
+            "fold_num": oos_idx + 1,
+            "in_sample": {
+                "trade_count": len(is_trades),
+                "win_rate": round(is_win_rate, 4),
+                "total_pnl": round(is_summary["total_pnl"], 2),
+                "profit_factor": round(is_pf, 2),
+            },
+            "out_of_sample": {
+                "trade_count": len(oos_trades),
+                "win_rate": round(oos_win_rate, 4),
+                "total_pnl": round(oos_summary["total_pnl"], 2),
+                "profit_factor": round(oos_pf, 2),
+            },
+        })
+
+    # Compute aggregate metrics
+    avg_is_wr = np.mean(all_is_win_rates) if all_is_win_rates else 0.0
+    avg_oos_wr = np.mean(all_oos_win_rates) if all_oos_win_rates else 0.0
+
+    # Degradation: how much OOS win rate drops vs IS
+    degradation = (avg_is_wr - avg_oos_wr) / avg_is_wr * 100 if avg_is_wr > 0 else 0.0
+
+    avg_is_pf_val = np.mean(all_is_pf) if all_is_pf else 1.0
+    avg_oos_pf_val = np.mean(all_oos_pf) if all_oos_pf else 1.0
+
+    # Strategy is robust if OOS win rate > 45% AND OOS profit factor > 1.0
+    is_robust = (avg_oos_wr > 0.45) and (avg_oos_pf_val > 1.0)
+
+    return {
+        "folds": fold_results,
+        "avg_is_win_rate": round(avg_is_wr, 4),
+        "avg_oos_win_rate": round(avg_oos_wr, 4),
+        "degradation_pct": round(degradation, 1),
+        "avg_is_pf": round(avg_is_pf_val, 2),
+        "avg_oos_pf": round(avg_oos_pf_val, 2),
+        "is_robust": is_robust,
+    }
 
 
 # ─────────────────────────── REPORT COMPUTATION ──────────────────────────────
