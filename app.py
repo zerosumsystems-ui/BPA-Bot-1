@@ -682,16 +682,8 @@ def _add_annotations(fig, df, analysis, best_only=False):
                 layer="above"
             )
             
-            # Build the label text
-            order_label = f" ({b_order_type})" if b_order_type else ""
-            
-            try:
-                conf_val = float(b_conf)
-            except (ValueError, TypeError):
-                conf_val = 0.0
-                
-            conf_str = f" {conf_val:.0%}" if conf_val > 0 else ""
-            label_text = f"#{i+1}: {b_name}{order_label}{conf_str}<br>(Bar {b_bar})"
+            # Remove verbose wording from chart labels per user request
+            label_text = f"#{i+1}"
             
             fig.add_annotation(
                 x=int(b_bar),
@@ -856,9 +848,12 @@ def render_training_lab():
 
     # Ensure we have chart data in session state
     if "ticker" not in st.session_state:
-        load_new_chart()
-    if "ticker" not in st.session_state:
-        return  # error was already shown
+        st.info("Welcome to the Training Lab! 🧪 Ready to analyze Al Brooks setups?")
+        if st.button("🚀 Start Training Session", type="primary", use_container_width=True):
+            with st.spinner("Fetching a random S&P 500 chart..."):
+                load_new_chart()
+                st.rerun()
+        return
 
     ticker = st.session_state["ticker"]
     df = st.session_state["chart_df"]
