@@ -401,23 +401,27 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
             line=dict(color="#60a5fa", width=2),
         ))
 
-    # Entry marker
-    fig.add_trace(go.Scatter(
-        x=[entry_x], y=[trade.entry_price],
-        mode="markers",
-        marker=dict(symbol="triangle-up" if trade.direction == "Long" else "triangle-down",
-                    size=14, color="#2196F3"),
-        name="Entry",
-    ))
+    # Setup bar (signal bar = bar before entry) -- painted purple
+    setup_x = entry_x - 1
+    if setup_x >= 0 and setup_x < len(window_df):
+        sb = window_df.iloc[setup_x]
+        fig.add_trace(go.Candlestick(
+            x=[setup_x if is_daily else x_vals.iloc[setup_x]],
+            open=[sb["Open"]], high=[sb["High"]], low=[sb["Low"]], close=[sb["Close"]],
+            increasing_line_color="#9C27B0", decreasing_line_color="#9C27B0",
+            increasing_fillcolor="#9C27B0", decreasing_fillcolor="#9C27B0",
+            name="Setup Bar", showlegend=True,
+        ))
 
-    # Exit marker
-    if trade.exit_bar > 0:
-        exit_color = "#00C853" if trade.is_winner else "#FF1744"
-        fig.add_trace(go.Scatter(
-            x=[exit_x], y=[trade.exit_price],
-            mode="markers",
-            marker=dict(symbol="x", size=12, color=exit_color),
-            name=f"Exit (${trade.pnl:+.2f})",
+    # Entry bar -- painted gold
+    if entry_x >= 0 and entry_x < len(window_df):
+        eb = window_df.iloc[entry_x]
+        fig.add_trace(go.Candlestick(
+            x=[entry_x if is_daily else x_vals.iloc[entry_x]],
+            open=[eb["Open"]], high=[eb["High"]], low=[eb["Low"]], close=[eb["Close"]],
+            increasing_line_color="#FFD700", decreasing_line_color="#FFD700",
+            increasing_fillcolor="#FFD700", decreasing_fillcolor="#FFD700",
+            name="Entry Bar", showlegend=True,
         ))
 
     # Stop loss line
