@@ -38,8 +38,10 @@ st.set_page_config(
 DATA_DIR = pathlib.Path(os.environ.get("DATA_DIR", "."))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+BASE_DIR = pathlib.Path(__file__).parent
+ENCYCLOPEDIA_PATH = BASE_DIR / "brooks_encyclopedia_learnings.md"
+
 TRAINING_CSV = DATA_DIR / "training_data.csv"
-ENCYCLOPEDIA_PATH = DATA_DIR / "brooks_encyclopedia_learnings.md"
 DO_NOT_TRADE_JSON = DATA_DIR / "do_not_trade.json"
 
 CSV_COLUMNS = [
