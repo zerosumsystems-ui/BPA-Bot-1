@@ -28,7 +28,7 @@ from google import genai
 
 st.set_page_config(
     page_title="Trading Bot Trainer",
-    page_icon="📈",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -337,6 +337,138 @@ def build_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
 
     return fig
 
+
+def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = False) -> go.Figure:
+    """Build a candlestick chart highlighting a single trade's entry, exit, stop, and target."""
+    # For daily charts, use the DataFrame index directly; for 5m, use BarNumber
+    if is_daily:
+        # Slice a window around the trade: 10 bars before entry to 10 bars after exit
+        bar_indices = list(range(len(df)))
+        pad_before = 10
+        pad_after = 10
+        start_idx = max(0, trade.entry_bar - 1 - pad_before)
+        end_idx = min(len(df), trade.exit_bar + pad_after)
+        window_df = df.iloc[start_idx:end_idx].copy()
+        window_df["_x"] = range(len(window_df))
+        x_vals = window_df["_x"]
+        # Relative bar positions for the trade within the window
+        entry_x = trade.entry_bar - 1 - start_idx
+        exit_x = trade.exit_bar - 1 - start_idx if trade.exit_bar > 0 else entry_x
+        x_title = "Bar"
+        chart_title = f"{ticker} Daily -- {trade.setup_name} ({trade.direction})"
+        # Build date labels for hover
+        date_labels = [str(d.date()) if hasattr(d, 'date') else str(d) for d in window_df.index]
+    else:
+        window_df = df.copy()
+        if "BarNumber" not in window_df.columns:
+            window_df["BarNumber"] = range(1, len(window_df) + 1)
+        x_vals = window_df["BarNumber"]
+        entry_x = trade.entry_bar
+        exit_x = trade.exit_bar if trade.exit_bar > 0 else entry_x
+        x_title = "Bar Number (5-Min)"
+        chart_title = f"{ticker} -- {trade.setup_name} ({trade.direction})"
+        date_labels = None
+
+    fig = go.Figure()
+
+    # Highlight trade range with a shaded rectangle
+    fig.add_vrect(
+        x0=entry_x - 0.5, x1=exit_x + 0.5,
+        fillcolor="rgba(100, 149, 237, 0.15)",
+        line_width=0,
+        layer="below",
+    )
+
+    # Candlestick
+    fig.add_trace(go.Candlestick(
+        x=x_vals,
+        open=window_df["Open"],
+        high=window_df["High"],
+        low=window_df["Low"],
+        close=window_df["Close"],
+        name="OHLC",
+        increasing_line_color="#4ade80",
+        decreasing_line_color="#f87171",
+        increasing_fillcolor="#4ade80",
+        decreasing_fillcolor="#f87171",
+    ))
+
+    # EMA if available
+    if "EMA20" in window_df.columns:
+        fig.add_trace(go.Scatter(
+            x=x_vals, y=window_df["EMA20"],
+            mode="lines", name="EMA 20",
+            line=dict(color="#60a5fa", width=2),
+        ))
+
+    # Entry marker
+    fig.add_trace(go.Scatter(
+        x=[entry_x], y=[trade.entry_price],
+        mode="markers+text",
+        marker=dict(symbol="triangle-up" if trade.direction == "Long" else "triangle-down",
+                    size=14, color="#2196F3"),
+        text=["Entry"], textposition="top center",
+        name="Entry", showlegend=False,
+    ))
+
+    # Exit marker
+    if trade.exit_bar > 0:
+        exit_color = "#00C853" if trade.is_winner else "#FF1744"
+        fig.add_trace(go.Scatter(
+            x=[exit_x], y=[trade.exit_price],
+            mode="markers+text",
+            marker=dict(symbol="x", size=12, color=exit_color),
+            text=[f"Exit (${trade.pnl:+.2f})"], textposition="bottom center",
+            name="Exit", showlegend=False,
+        ))
+
+    # Stop loss line
+    price_range = window_df["High"].max() - window_df["Low"].min()
+    x_min = x_vals.min()
+    x_max = x_vals.max()
+    fig.add_trace(go.Scatter(
+        x=[entry_x - 0.5, exit_x + 0.5],
+        y=[trade.stop_loss, trade.stop_loss],
+        mode="lines", line=dict(color="#FF1744", width=1.5, dash="dash"),
+        name="Stop Loss", showlegend=True,
+    ))
+
+    # Target line
+    target = trade.scalp_target if trade.scalp_target != trade.swing_target else trade.swing_target
+    if hasattr(trade, 'swing_target') and trade.swing_target > 0:
+        target = trade.swing_target
+    fig.add_trace(go.Scatter(
+        x=[entry_x - 0.5, exit_x + 0.5],
+        y=[target, target],
+        mode="lines", line=dict(color="#00C853", width=1.5, dash="dash"),
+        name="Target", showlegend=True,
+    ))
+
+    fig.update_layout(
+        title=chart_title,
+        paper_bgcolor="#ffebd2",
+        plot_bgcolor="#ffebd2",
+        xaxis=dict(
+            rangeslider=dict(visible=False),
+            type="linear",
+            title=x_title,
+            gridcolor="#ffcc99",
+            tickfont=dict(size=11, color="#7c4a2a"),
+        ),
+        yaxis=dict(
+            gridcolor="#ffcc99",
+            title="Price",
+            tickfont=dict(size=11, color="#7c4a2a"),
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=10, r=10, t=50, b=10),
+        height=400,
+        autosize=True,
+    )
+
+    return fig
+
+
 # ─────────────────────────── ENCYCLOPEDIA CACHE ──────────────────────────────
 
 @st.cache_data(ttl=None)
@@ -582,14 +714,14 @@ def load_new_chart():
 
     # Fail fast if no API key is set on Render
     if not get_databento_key():
-        st.error("⚠️ **DATABENTO_API_KEY is not set.** Please add it to your Render Environment Variables. The app cannot function without data.")
+        st.error("DATABENTO_API_KEY is not set. Please add it to your Render Environment Variables. The app cannot function without data.")
         return
 
     tickers = get_sp500_tickers()
     random.shuffle(tickers)
     for i, t in enumerate(tickers):
         if i >= 5:  # Prevent hanging the server on API failures/rate limits
-            st.error("⚠️ Databento API failed to return data after 5 attempts. You may be out of credits, or the Databento API is down. Check Render logs.")
+            st.error("Databento API failed to return data after 5 attempts. You may be out of credits, or the API is down. Check Render logs.")
             return
 
         df = fetch_chart_data_v2(t)
@@ -764,16 +896,16 @@ def check_prefetch():
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("## 📈 Trading Bot Trainer")
+        st.markdown("## Trading Bot Trainer")
         st.markdown("---")
         count = len(load_training_csv())
-        st.metric("📊 Charts Corrected", f"{count} / 100")
+        st.metric("Charts Corrected", f"{count} / 100")
         st.progress(min(count / 100, 1.0))
         st.markdown("---")
 
         # Analysis mode toggle
         analysis_mode = st.radio(
-            "⚡ Analysis Engine",
+            "Analysis Engine",
             ["Algo (Instant)", "Gemini (LLM)"],
             index=0,
             help="Algo runs locally in ~50ms. Gemini uses the LLM API (5-15s).",
@@ -790,7 +922,7 @@ def render_sidebar():
         
         # ── Ask the Bot (Teacher Workflow) ──
         st.markdown("---")
-        st.subheader("💬 Ask the Bot")
+        st.subheader("Ask the Bot")
 
         # Initialize chat history if missing
         if "chat_history" not in st.session_state:
@@ -824,8 +956,8 @@ def render_training_lab():
 
     # Ensure we have chart data in session state
     if "ticker" not in st.session_state:
-        st.info("Welcome to the Training Lab! 🧪 Ready to analyze Al Brooks setups?")
-        if st.button("🚀 Start Training Session", type="primary", use_container_width=True):
+        st.info("Welcome to the Training Lab. Ready to analyze Al Brooks setups?")
+        if st.button("Start Training Session", type="primary", use_container_width=True):
             with st.spinner("Fetching a random S&P 500 chart..."):
                 load_new_chart()
                 st.rerun()
@@ -846,7 +978,7 @@ def render_training_lab():
     # Bot's Reasoning
     bot_reasoning = analysis.get("reasoning", "")
     if bot_reasoning:
-        with st.expander("🏆 View Bot's Setup Ranking & Reasoning", expanded=False):
+        with st.expander("View Bot's Setup Ranking and Reasoning", expanded=False):
             st.markdown(bot_reasoning)
 
     # Chart View toggle
@@ -895,14 +1027,14 @@ def render_training_lab():
     if "bot_analysis" not in st.session_state:
         use_algo = st.session_state.get("analysis_mode", "Algo (Instant)") == "Algo (Instant)"
         if use_algo:
-            # ⚡ Fast algo engine — runs on raw OHLC data, no API call
+            # Fast algo engine — runs on raw OHLC data, no API call
             analysis = analyze_bars(df)
             st.session_state["bot_analysis"] = analysis
             st.rerun()
         else:
-            # 🤖 Gemini LLM vision — slower but more nuanced
+            # Gemini LLM vision — slower but more nuanced
             st.plotly_chart(fig, use_container_width=True, key="main_chart_loading")
-            with st.spinner("\U0001f916 Bot is analyzing the chart with Gemini..."):
+            with st.spinner("Bot is analyzing the chart with Gemini..."):
                 analysis = analyze_chart(fig, ticker)
             st.session_state["bot_analysis"] = analysis
             st.rerun()
@@ -923,24 +1055,24 @@ def render_training_lab():
     # ── Action Buttons: Approve / Skip / Illiquid ──
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     with btn_col1:
-        approve_btn = st.button("✅ Approve Day", width="stretch", type="primary")
+        approve_btn = st.button("Approve Day", width="stretch", type="primary")
     with btn_col2:
-        skip_btn = st.button("⏭️ Skip", width="stretch")
+        skip_btn = st.button("Skip", width="stretch")
     with btn_col3:
-        illiquid_btn = st.button("🚫 Illiquid", width="stretch")
+        illiquid_btn = st.button("Illiquid", width="stretch")
 
     # ── Teacher Override & JSON Analysis ──
     col_json, col_teacher = st.columns(2, gap="large")
     
     with col_json:
-        st.subheader("🤖 Bot's JSON Analysis")
+        st.subheader("Bot's JSON Analysis")
         if "_error" in analysis:
             st.warning(analysis["_error"])
         with st.expander("Raw API JSON Output", expanded=False):
             st.json(analysis)
 
     with col_teacher:
-        st.subheader("🎓 Teacher's Workflow")
+        st.subheader("Teacher's Workflow")
         bot_action = analysis.get("action", "?")
         dyn_action = [f"Approve Bot's Guess: {bot_action}"] + ACTION_OPTIONS[1:]
         action = st.selectbox("Action", dyn_action, key=f"action_{ticker}")
@@ -991,7 +1123,7 @@ def render_training_lab():
         if notes.strip():
             with st.spinner("Teaching Bot... Updating Encyclopedia with your notes."):
                 update_encyclopedia(notes.strip())
-            st.toast("Encyclopedia permanently updated!", icon="✅")
+            st.toast("Encyclopedia permanently updated!")
 
         save_row(row)
         for key in ["ticker", "chart_df", "chart_fig", "bot_analysis", "chat_history"]:
@@ -1001,7 +1133,7 @@ def render_training_lab():
     if skip_btn or illiquid_btn:
         if illiquid_btn:
             add_to_do_not_trade(ticker)
-            st.toast(f"{ticker} has been permanently excluded from training!", icon="🚫")
+            st.toast(f"{ticker} has been permanently excluded from training.")
         for key in ["ticker", "chart_df", "chart_fig", "bot_analysis", "chat_history"]:
             st.session_state.pop(key, None)
         st.rerun()
@@ -1089,8 +1221,8 @@ def render_library():
                 b_cycle = row.get("bot_market_cycle", "")
                 b_action = row.get("bot_action", "")
                 st.markdown("**Bot's Guess:**")
-                st.markdown(f"- Day Type: {b_day} {'✅' if b_day == o_day else '✏️'}")
-                st.markdown(f"- Market Cycle: {b_cycle} {'✅' if b_cycle == o_cycle else '✏️'}")
+                st.markdown(f"- Day Type: {b_day} {'(match)' if b_day == o_day else '(override)'}")
+                st.markdown(f"- Market Cycle: {b_cycle} {'(match)' if b_cycle == o_cycle else '(override)'}")
                 st.markdown(f"- Action: {b_action}")
                 for i in range(1, 16):
                     s_name = row.get(f"bot_setup_{i}", "")
@@ -1361,13 +1493,13 @@ def render_backtest():
 
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     with col1:
-        bt_ticker = st.text_input("Ticker", value="AAPL", key="bt_ticker").upper().strip()
+        bt_ticker = st.text_input("Ticker", value="SPY", key="bt_ticker").upper().strip()
     with col2:
         bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode",
-                                help="Scalp = 1:1 R/R, Swing = 2:1 R/R")
+                                help="Scalp = 1:1 R/R target. Swing = 2:1 R/R target.")
     with col3:
-        bt_days = st.number_input("Days Back", min_value=1, max_value=1825, value=30, key="bt_days",
-                                   help="Trading days to backtest (yFinance: max ~60 days, Databento: depends on plan)")
+        bt_days = st.number_input("Trading Days", min_value=1, max_value=60, value=30, key="bt_days",
+                                   help="Trading days to backtest. 5-min data limited to ~40 days via yFinance.")
     with col4:
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("Run Backtest", key="bt_run", type="primary")
@@ -1443,10 +1575,12 @@ def render_backtest():
 
             report = run_multi_day_backtest(daily_dfs, mode=bt_mode)
             st.session_state["bt_report"] = report
+            st.session_state["bt_daily_dfs"] = daily_dfs
+            st.session_state["bt_ticker_used"] = bt_ticker
 
     report = st.session_state.get("bt_report")
     if not report:
-        st.info("Configure settings above and press **Run Backtest** to start.")
+        st.info("Configure settings and press **Run Backtest**. Uses 5-min intraday bars with EOD forced close.")
         return
 
     s = report["summary"]
@@ -1548,12 +1682,39 @@ def render_backtest():
             if daily_rows:
                 st.dataframe(pd.DataFrame(daily_rows), width="stretch", hide_index=True)
 
-    # ── Trade log ──
-    with st.expander("Full Trade Log", expanded=False):
-        trade_df = trades_to_dataframe(trades)
-        st.dataframe(trade_df, width="stretch", hide_index=True)
-        csv_data = trade_df.to_csv(index=False)
-        st.download_button("Download CSV", csv_data, f"backtest_{bt_ticker}_{bt_mode}.csv", "text/csv")
+    # ── Trade log (clickable) ──
+    st.markdown("**Trade Log** -- select a row to view the chart")
+    trade_df = trades_to_dataframe(trades)
+    selection = st.dataframe(
+        trade_df, width="stretch", hide_index=True,
+        on_select="rerun", selection_mode="single-row", key="bt_trade_select",
+    )
+
+    # Show chart for selected trade
+    sel_rows = selection.selection.rows if selection and selection.selection else []
+    if sel_rows:
+        idx = sel_rows[0]
+        if idx < len(trades):
+            sel_trade = trades[idx]
+            daily_dfs = st.session_state.get("bt_daily_dfs", {})
+            used_ticker = st.session_state.get("bt_ticker_used", bt_ticker)
+            # Find which day this trade belongs to by matching entry_time date
+            trade_date = sel_trade.entry_time[:10] if sel_trade.entry_time else ""
+            day_df = daily_dfs.get(trade_date)
+            if day_df is not None and not day_df.empty:
+                if "BarNumber" not in day_df.columns:
+                    day_df = day_df.copy()
+                    day_df["BarNumber"] = range(1, len(day_df) + 1)
+                if "EMA20" not in day_df.columns:
+                    day_df = day_df.copy()
+                    day_df["EMA20"] = day_df["Close"].ewm(span=20, adjust=False).mean()
+                fig_trade = build_trade_chart(day_df, sel_trade, used_ticker, is_daily=False)
+                st.plotly_chart(fig_trade, use_container_width=True, key="bt_trade_chart")
+            else:
+                st.caption("Chart data not available for this trade's date.")
+
+    csv_data = trade_df.to_csv(index=False)
+    st.download_button("Download CSV", csv_data, f"backtest_{bt_ticker}_{bt_mode}.csv", "text/csv")
 
 
 # ─────────────────────────── DAILY BACKTEST TAB ──────────────────────────────
@@ -1562,19 +1723,27 @@ def render_backtest_daily():
     """Daily-chart backtesting — uses daily bars so yFinance can go back years."""
     from backtester import run_daily_backtest, trades_to_dataframe
 
-    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        dt_ticker = st.text_input("Ticker", value="AAPL", key="dt_ticker").upper().strip()
+        dt_ticker = st.text_input("Ticker", value="SPY", key="dt_ticker").upper().strip()
     with col2:
         dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode",
-                                help="Swing = 2:1 R/R (default for daily), Scalp = 1:1 R/R")
+                                help="Swing = 2:1 R/R target (default for daily). Scalp = 1:1 R/R.")
     with col3:
-        dt_years = st.selectbox("Period", ["1y", "2y", "5y", "10y", "max"], key="dt_period",
-                                 help="How far back to test")
+        dt_years = st.selectbox("Period", ["2y", "5y", "10y", "1y", "max"], key="dt_period",
+                                 help="How far back to test. Daily bars from yFinance.")
+
+    col4, col5, col6, col7 = st.columns([1, 1, 1, 1])
     with col4:
-        dt_hold = st.number_input("Max Hold", min_value=3, max_value=60, value=10, key="dt_hold",
-                                   help="Max days to hold a trade before forced exit")
+        dt_hold = st.number_input("Max Hold (days)", min_value=2, max_value=120, value=15, key="dt_hold",
+                                   help="Max trading days to hold before forced exit")
     with col5:
+        dt_gap = st.number_input("Min Gap Between Trades", min_value=0, max_value=20, value=3, key="dt_gap",
+                                  help="Min bars after exit before entering next trade")
+    with col6:
+        dt_max_trades = st.number_input("Max Trades", min_value=10, max_value=500, value=200, key="dt_max_trades",
+                                         help="Maximum number of trades to simulate")
+    with col7:
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("Run Backtest", key="dt_run", type="primary")
 
@@ -1612,12 +1781,16 @@ def render_backtest_daily():
 
             st.caption(f"Data: **yFinance daily** | {df.index[0].strftime('%Y-%m-%d')} → {df.index[-1].strftime('%Y-%m-%d')} ({len(df)} bars)")
 
-            report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold)
+            report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold,
+                                          max_trades=dt_max_trades,
+                                          min_bars_between_trades=dt_gap)
             st.session_state["dt_report"] = report
+            st.session_state["dt_source_df"] = df
+            st.session_state["dt_ticker_used"] = dt_ticker
 
     report = st.session_state.get("dt_report")
     if not report:
-        st.info("Configure settings above and press **Run Backtest** to start. Daily chart backtests use yFinance and can go back years.")
+        st.info("Configure settings and press **Run Backtest**. Uses daily bars from yFinance -- can test years of data.")
         return
 
     s = report["summary"]
@@ -1708,12 +1881,30 @@ def render_backtest_daily():
         st.markdown(f"- Best Win Streak: {s['max_win_streak']}")
         st.markdown(f"- Worst Loss Streak: {s['max_loss_streak']}")
 
-    # ── Trade log ──
-    with st.expander("Full Trade Log", expanded=False):
-        trade_df = trades_to_dataframe(trades)
-        st.dataframe(trade_df, width="stretch", hide_index=True)
-        csv_data = trade_df.to_csv(index=False)
-        st.download_button("Download CSV", csv_data, f"daily_backtest_{dt_ticker}_{dt_mode}.csv", "text/csv", key="dt_csv")
+    # ── Trade log (clickable) ──
+    st.markdown("**Trade Log** -- select a row to view the chart")
+    trade_df = trades_to_dataframe(trades)
+    dt_selection = st.dataframe(
+        trade_df, width="stretch", hide_index=True,
+        on_select="rerun", selection_mode="single-row", key="dt_trade_select",
+    )
+
+    # Show chart for selected trade
+    dt_sel_rows = dt_selection.selection.rows if dt_selection and dt_selection.selection else []
+    if dt_sel_rows:
+        idx = dt_sel_rows[0]
+        if idx < len(trades):
+            sel_trade = trades[idx]
+            source_df = st.session_state.get("dt_source_df")
+            used_ticker = st.session_state.get("dt_ticker_used", dt_ticker)
+            if source_df is not None and not source_df.empty:
+                fig_trade = build_trade_chart(source_df, sel_trade, used_ticker, is_daily=True)
+                st.plotly_chart(fig_trade, use_container_width=True, key="dt_trade_chart")
+            else:
+                st.caption("Chart data not available.")
+
+    csv_data = trade_df.to_csv(index=False)
+    st.download_button("Download CSV", csv_data, f"daily_backtest_{dt_ticker}_{dt_mode}.csv", "text/csv", key="dt_csv")
 
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
@@ -1722,7 +1913,7 @@ def main():
     render_sidebar()
 
     tab_train, tab_backtest, tab_daily, tab_scanner, tab_library = st.tabs(
-        ["Training Lab", "Backtest (5m)", "Backtest (Daily)", "Scanner", "Library"]
+        ["Training Lab", "Backtest 5m", "Backtest Daily", "Scanner", "Library"]
     )
 
     with tab_train:
