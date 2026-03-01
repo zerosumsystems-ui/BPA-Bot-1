@@ -7,9 +7,10 @@ from __future__ import annotations
 import os
 import io
 import json
+import logging
 import random
 import datetime
-import pathlib
+from pathlib import Path
 import time
 import concurrent.futures
 import threading
@@ -174,10 +175,16 @@ ORDER_OPTIONS = [
 # ─────────────────────────── API KEYS ────────────────────────────────────────
 
 def get_api_key() -> str:
-    """Load GEMINI_API_KEY from the environment or Streamlit secrets."""
+    """Load GEMINI_API_KEY from the environment, Streamlit secrets, or Render secret files."""
     key = os.environ.get("GEMINI_API_KEY")
     if key:
         return key
+    
+    # Check Render secret file
+    render_secret = Path("/etc/secrets/GEMINI_API_KEY")
+    if render_secret.exists():
+        return render_secret.read_text().strip()
+        
     try:
         key = st.secrets["GEMINI_API_KEY"]
         if key:
@@ -188,10 +195,16 @@ def get_api_key() -> str:
 
 
 def get_databento_key() -> str:
-    """Load DATABENTO_API_KEY from the environment or Streamlit secrets."""
+    """Load DATABENTO_API_KEY from the environment, Streamlit secrets, or Render secret files."""
     key = os.environ.get("DATABENTO_API_KEY")
     if key:
         return key
+        
+    # Check Render secret file
+    render_secret = Path("/etc/secrets/DATABENTO_API_KEY")
+    if render_secret.exists():
+        return render_secret.read_text().strip()
+        
     try:
         key = st.secrets["DATABENTO_API_KEY"]
         if key:
