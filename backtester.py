@@ -221,7 +221,6 @@ def simulate_trade(
 def run_backtest(
     df: pd.DataFrame,
     mode: str = "scalp",
-    max_trades_per_day: int = 5,
     min_bars_between_trades: int = 3,
 ) -> dict:
     """
@@ -258,10 +257,6 @@ def run_backtest(
         # Enforce minimum spacing between trades
         if entry_bar_num - last_entry_bar < min_bars_between_trades:
             continue
-
-        # Enforce max trades per day
-        if len(trades) >= max_trades_per_day:
-            break
 
         signal_bar = bars[bar_idx - 1]  # Signal bar is the bar BEFORE entry
         name = setup["setup_name"]
@@ -320,7 +315,6 @@ def run_backtest(
 def run_multi_day_backtest(
     daily_dataframes: dict[str, pd.DataFrame],
     mode: str = "scalp",
-    max_trades_per_day: int = 5,
     min_bars_between_trades: int = 3,
 ) -> dict:
     """
@@ -337,7 +331,7 @@ def run_multi_day_backtest(
     daily_results: list[dict] = []
 
     for date_str, df in sorted(daily_dataframes.items()):
-        result = run_backtest(df, mode, max_trades_per_day, min_bars_between_trades)
+        result = run_backtest(df, mode, min_bars_between_trades)
         day_trades = result["trades"]
         all_trades.extend(day_trades)
         daily_results.append({
@@ -368,7 +362,6 @@ def run_multi_day_backtest(
 def run_daily_backtest(
     df: pd.DataFrame,
     mode: str = "swing",
-    max_trades: int = 100,
     min_bars_between_trades: int = 2,
     hold_limit: int = 20,
 ) -> dict:
@@ -381,7 +374,6 @@ def run_daily_backtest(
     Args:
         df: DataFrame with daily OHLCV, indexed by date
         mode: "scalp" (1:1 R/R) or "swing" (2:1 R/R)
-        max_trades: max total trades for the whole series
         min_bars_between_trades: min days between entries
         hold_limit: max days to hold a single trade before forced exit
 
@@ -420,9 +412,6 @@ def run_daily_backtest(
         # Enforce minimum spacing
         if trades and entry_bar_num - trades[-1].entry_bar < min_bars_between_trades:
             continue
-
-        if len(trades) >= max_trades:
-            break
 
         signal_bar = bars[bar_idx - 1]
         name = setup["setup_name"]

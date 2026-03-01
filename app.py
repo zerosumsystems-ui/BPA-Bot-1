@@ -1754,7 +1754,7 @@ def render_backtest_daily():
         dt_years = st.selectbox("Period", ["2y", "5y", "10y", "1y", "max"], key="dt_period",
                                  help="How far back to test. Daily bars from yFinance.")
 
-    col4, col5, col6, col7 = st.columns([1, 1, 1, 1])
+    col4, col5, col6 = st.columns([1, 1, 1])
     with col4:
         dt_hold = st.number_input("Max Hold (days)", min_value=2, max_value=120, value=15, key="dt_hold",
                                    help="Max trading days to hold before forced exit")
@@ -1762,9 +1762,6 @@ def render_backtest_daily():
         dt_gap = st.number_input("Min Gap Between Trades", min_value=0, max_value=20, value=3, key="dt_gap",
                                   help="Min bars after exit before entering next trade")
     with col6:
-        dt_max_trades = st.number_input("Max Trades", min_value=10, max_value=500, value=200, key="dt_max_trades",
-                                         help="Maximum number of trades to simulate per ticker")
-    with col7:
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("Run Backtest", key="dt_run", type="primary")
 
@@ -1813,7 +1810,6 @@ def render_backtest_daily():
                 continue
 
             report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold,
-                                          max_trades=dt_max_trades,
                                           min_bars_between_trades=dt_gap)
 
             # Tag each trade with the ticker
