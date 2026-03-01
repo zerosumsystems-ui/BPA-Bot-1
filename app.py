@@ -471,8 +471,8 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     return fig
 
 
-def render_setup_performance(summary: dict, key_prefix: str = "bt"):
-    """Render a sortable setup performance table from backtest summary stats."""
+def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"):
+    """Render setup performance with a summary table and per-setup expandable detail sections."""
     setup_stats = summary.get("setup_stats", {})
     if not setup_stats:
         return
@@ -499,6 +499,95 @@ def render_setup_performance(summary: dict, key_prefix: str = "bt"):
     perf_df = pd.DataFrame(rows).sort_values("P&L", ascending=False).reset_index(drop=True)
     st.markdown("**Setup Performance**")
     st.dataframe(perf_df, width="stretch", hide_index=True, key=f"{key_prefix}_setup_perf")
+
+    # Group trades by setup for detailed per-setup expanders
+    from collections import defaultdict
+    trades_by_setup = defaultdict(list)
+    for t in trades:
+        trades_by_setup[t.setup_name].append(t)
+
+    # Sort setups by total P&L descending (match table order)
+    sorted_setups = sorted(trades_by_setup.keys(),
+                           key=lambda n: setup_stats.get(n, {}).get("pnl", 0), reverse=True)
+
+    for setup_name in sorted_setups:
+        ss = setup_stats.get(setup_name)
+        if not ss:
+            continue
+        st_trades = trades_by_setup[setup_name]
+        pnl_sign = "+" if ss["pnl"] >= 0 else ""
+        label = f"{setup_name}  --  {ss['count']} trades, {pnl_sign}${ss['pnl']:.2f} P&L, {ss['win_rate']:.0%} win rate"
+
+        with st.expander(label, expanded=False):
+            # Metrics row
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            c1.metric("Trades", ss["count"])
+            c2.metric("Win Rate", f"{ss['win_rate']:.0%}")
+            c3.metric("Total P&L", f"${ss['pnl']:.2f}")
+            c4.metric("Avg P&L", f"${ss['avg_pnl']:.2f}")
+            c5.metric("Avg R", f"{ss['avg_r']:.2f}R")
+            pf_val = f"{ss['profit_factor']:.2f}" if ss['profit_factor'] != float('inf') else "Inf"
+            c6.metric("Profit Factor", pf_val)
+
+            c7, c8, c9, c10 = st.columns(4)
+            c7.metric("Wins", ss["wins"])
+            c8.metric("Losses", ss["losses"])
+            c9.metric("Best Trade", f"${ss['best_trade']:.2f}")
+            c10.metric("Worst Trade", f"${ss['worst_trade']:.2f}")
+
+            # Direction breakdown for this setup
+            longs = [t for t in st_trades if t.direction == "Long"]
+            shorts = [t for t in st_trades if t.direction == "Short"]
+            if longs or shorts:
+                dir_rows = []
+                for dir_name, dir_trades in [("Long", longs), ("Short", shorts)]:
+                    if not dir_trades:
+                        continue
+                    d_wins = sum(1 for t in dir_trades if t.is_winner)
+                    d_pnl = sum(t.pnl for t in dir_trades)
+                    d_wr = d_wins / len(dir_trades) if dir_trades else 0
+                    dir_rows.append({
+                        "Direction": dir_name,
+                        "Trades": len(dir_trades),
+                        "Wins": d_wins,
+                        "Win %": f"{d_wr:.0%}",
+                        "P&L": round(d_pnl, 2),
+                    })
+                if dir_rows:
+                    st.markdown("**By Direction**")
+                    st.dataframe(pd.DataFrame(dir_rows), width="stretch", hide_index=True,
+                                 key=f"{key_prefix}_setup_{setup_name}_dir")
+
+            # Cumulative P&L mini-chart for this setup
+            if len(st_trades) >= 2:
+                cum_pnl = []
+                running = 0
+                for t in st_trades:
+                    running += t.pnl
+                    cum_pnl.append(round(running, 2))
+                fig_cum = go.Figure()
+                fig_cum.add_trace(go.Scatter(
+                    x=list(range(1, len(cum_pnl) + 1)), y=cum_pnl,
+                    mode="lines+markers", line=dict(color="#00C853" if cum_pnl[-1] >= 0 else "#FF1744", width=2),
+                    marker=dict(size=4), name="Cum P&L",
+                ))
+                fig_cum.add_hline(y=0, line_dash="dash", line_color="gray")
+                fig_cum.update_layout(
+                    xaxis_title="Trade #", yaxis_title="Cumulative P&L ($/sh)",
+                    height=220, margin=dict(l=40, r=20, t=10, b=40),
+                )
+                st.plotly_chart(fig_cum, use_container_width=True, key=f"{key_prefix}_setup_{setup_name}_cum")
+
+            # Exit reason breakdown
+            exit_counts = defaultdict(int)
+            for t in st_trades:
+                exit_counts[t.exit_reason or "unknown"] += 1
+            if exit_counts:
+                er_rows = [{"Exit Reason": k, "Count": v, "%": f"{v / len(st_trades):.0%}"}
+                           for k, v in sorted(exit_counts.items(), key=lambda x: -x[1])]
+                st.markdown("**Exit Reasons**")
+                st.dataframe(pd.DataFrame(er_rows), width="stretch", hide_index=True,
+                             key=f"{key_prefix}_setup_{setup_name}_exit")
 
 
 def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
@@ -2021,7 +2110,7 @@ def render_backtest():
     st.plotly_chart(fig_eq, use_container_width=True)
 
     # ── Setup Performance ──
-    render_setup_performance(s, key_prefix="bt")
+    render_setup_performance(s, trades, key_prefix="bt")
 
     # ── Full Analytics ──
     render_analytics(trades, s, key_prefix="bt")
@@ -2229,7 +2318,7 @@ def render_backtest_daily():
     st.plotly_chart(fig_eq, use_container_width=True)
 
     # ── Setup Performance ──
-    render_setup_performance(s, key_prefix="dt")
+    render_setup_performance(s, trades, key_prefix="dt")
 
     # ── Full Analytics ──
     render_analytics(trades, s, key_prefix="dt")
