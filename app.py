@@ -404,11 +404,10 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     # Entry marker
     fig.add_trace(go.Scatter(
         x=[entry_x], y=[trade.entry_price],
-        mode="markers+text",
+        mode="markers",
         marker=dict(symbol="triangle-up" if trade.direction == "Long" else "triangle-down",
                     size=14, color="#2196F3"),
-        text=["Entry"], textposition="top center",
-        name="Entry", showlegend=False,
+        name="Entry",
     ))
 
     # Exit marker
@@ -416,10 +415,9 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         exit_color = "#00C853" if trade.is_winner else "#FF1744"
         fig.add_trace(go.Scatter(
             x=[exit_x], y=[trade.exit_price],
-            mode="markers+text",
+            mode="markers",
             marker=dict(symbol="x", size=12, color=exit_color),
-            text=[f"Exit (${trade.pnl:+.2f})"], textposition="bottom center",
-            name="Exit", showlegend=False,
+            name=f"Exit (${trade.pnl:+.2f})",
         ))
 
     # Stop loss line
