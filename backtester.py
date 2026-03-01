@@ -673,16 +673,31 @@ def _compute_summary(trades: list[Trade], mode: str) -> dict:
     for t in trades:
         name = t.setup_name
         if name not in setup_stats:
-            setup_stats[name] = {"count": 0, "wins": 0, "pnl": 0.0, "total_r": 0.0}
-        setup_stats[name]["count"] += 1
+            setup_stats[name] = {
+                "count": 0, "wins": 0, "losses": 0,
+                "pnl": 0.0, "total_r": 0.0,
+                "win_pnl": 0.0, "loss_pnl": 0.0,
+                "best_trade": 0.0, "worst_trade": 0.0,
+            }
+        s = setup_stats[name]
+        s["count"] += 1
         if t.is_winner:
-            setup_stats[name]["wins"] += 1
-        setup_stats[name]["pnl"] = round(setup_stats[name]["pnl"] + t.pnl, 2)
-        setup_stats[name]["total_r"] = round(setup_stats[name]["total_r"] + t.r_multiple, 2)
+            s["wins"] += 1
+            s["win_pnl"] = round(s["win_pnl"] + t.pnl, 2)
+        else:
+            s["losses"] += 1
+            s["loss_pnl"] = round(s["loss_pnl"] + t.pnl, 2)
+        s["pnl"] = round(s["pnl"] + t.pnl, 2)
+        s["total_r"] = round(s["total_r"] + t.r_multiple, 2)
+        s["best_trade"] = max(s["best_trade"], t.pnl)
+        s["worst_trade"] = min(s["worst_trade"], t.pnl)
 
-    # Add win rate to each setup
-    for name, stats in setup_stats.items():
-        stats["win_rate"] = round(stats["wins"] / stats["count"], 3) if stats["count"] > 0 else 0.0
+    # Add derived stats to each setup
+    for name, s in setup_stats.items():
+        s["win_rate"] = round(s["wins"] / s["count"], 3) if s["count"] > 0 else 0.0
+        s["avg_pnl"] = round(s["pnl"] / s["count"], 2) if s["count"] > 0 else 0.0
+        s["avg_r"] = round(s["total_r"] / s["count"], 2) if s["count"] > 0 else 0.0
+        s["profit_factor"] = round(s["win_pnl"] / abs(s["loss_pnl"]), 2) if s["loss_pnl"] != 0 else float('inf') if s["win_pnl"] > 0 else 0.0
 
     return {
         "mode": mode,

@@ -467,6 +467,36 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     return fig
 
 
+def render_setup_performance(summary: dict, key_prefix: str = "bt"):
+    """Render a sortable setup performance table from backtest summary stats."""
+    setup_stats = summary.get("setup_stats", {})
+    if not setup_stats:
+        return
+
+    rows = []
+    for name, s in setup_stats.items():
+        rows.append({
+            "Setup": name,
+            "Trades": s["count"],
+            "W": s["wins"],
+            "L": s["losses"],
+            "Win %": f"{s['win_rate']:.0%}",
+            "P&L": round(s["pnl"], 2),
+            "Avg P&L": round(s["avg_pnl"], 2),
+            "Avg R": round(s["avg_r"], 2),
+            "PF": round(s["profit_factor"], 2) if s["profit_factor"] != float('inf') else 999.0,
+            "Best": round(s["best_trade"], 2),
+            "Worst": round(s["worst_trade"], 2),
+        })
+
+    if not rows:
+        return
+
+    perf_df = pd.DataFrame(rows).sort_values("P&L", ascending=False).reset_index(drop=True)
+    st.markdown("**Setup Performance**")
+    st.dataframe(perf_df, width="stretch", hide_index=True, key=f"{key_prefix}_setup_perf")
+
+
 # ─────────────────────────── ENCYCLOPEDIA CACHE ──────────────────────────────
 
 @st.cache_data(ttl=None)
@@ -1616,6 +1646,9 @@ def render_backtest():
     fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="P&L ($/share)", height=300, margin=dict(l=40, r=20, t=20, b=40))
     st.plotly_chart(fig_eq, use_container_width=True)
 
+    # ── Setup Performance ──
+    render_setup_performance(s, key_prefix="bt")
+
     # ── MAE / MFE ──
     with st.expander("MAE / MFE Analysis", expanded=False):
         mae_col1, mae_col2, mae_col3, mae_col4, mae_col5 = st.columns(5)
@@ -1711,9 +1744,9 @@ def render_backtest_daily():
     """Daily-chart backtesting — uses daily bars so yFinance can go back years."""
     from backtester import run_daily_backtest, trades_to_dataframe
 
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        dt_ticker = st.text_input("Ticker", value="SPY", key="dt_ticker").upper().strip()
+        dt_tickers_raw = st.text_input("Tickers (comma-separated)", value="SPY, QQQ, AAPL", key="dt_tickers")
     with col2:
         dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode",
                                 help="Swing = 2:1 R/R target (default for daily). Scalp = 1:1 R/R.")
@@ -1730,51 +1763,98 @@ def render_backtest_daily():
                                   help="Min bars after exit before entering next trade")
     with col6:
         dt_max_trades = st.number_input("Max Trades", min_value=10, max_value=500, value=200, key="dt_max_trades",
-                                         help="Maximum number of trades to simulate")
+                                         help="Maximum number of trades to simulate per ticker")
     with col7:
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("Run Backtest", key="dt_run", type="primary")
 
-    if run_btn:
-        with st.spinner(f"Backtesting {dt_ticker} daily chart ({dt_years}, {dt_mode} mode)..."):
-            try:
-                import yfinance as yf
-            except ImportError:
-                st.error("yfinance is required for daily backtesting. Install it with: pip install yfinance")
-                return
+    # Parse tickers
+    dt_ticker_list = [t.strip().upper() for t in dt_tickers_raw.split(",") if t.strip()]
 
+    if run_btn:
+        if not dt_ticker_list:
+            st.warning("Enter at least one ticker.")
+            return
+
+        try:
+            import yfinance as yf
+        except ImportError:
+            st.error("yfinance is required for daily backtesting. Install it with: pip install yfinance")
+            return
+
+        all_trades = []
+        ticker_summaries = []
+        first_source_df = None
+        first_ticker = dt_ticker_list[0]
+        progress_bar = st.progress(0)
+
+        for ti, sym in enumerate(dt_ticker_list):
+            progress_bar.progress((ti) / len(dt_ticker_list), text=f"Backtesting {sym}...")
             try:
-                df = yf.download(dt_ticker, period=dt_years, interval="1d", progress=False)
+                df = yf.download(sym, period=dt_years, interval="1d", progress=False)
             except Exception as e:
-                st.error(f"Failed to fetch daily data: {e}")
-                return
+                st.caption(f"{sym}: failed to fetch data ({e})")
+                continue
 
             if df is None or df.empty:
-                st.warning(f"No daily data for {dt_ticker}.")
-                return
+                st.caption(f"{sym}: no data")
+                continue
 
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
             required = ["Open", "High", "Low", "Close"]
             if not all(c in df.columns for c in required):
-                st.warning("Missing OHLC columns in data.")
-                return
+                continue
 
             df = df.dropna(subset=required)
-
             if len(df) < 20:
-                st.warning(f"Only {len(df)} daily bars — need at least 20.")
-                return
-
-            st.caption(f"Data: **yFinance daily** | {df.index[0].strftime('%Y-%m-%d')} → {df.index[-1].strftime('%Y-%m-%d')} ({len(df)} bars)")
+                st.caption(f"{sym}: only {len(df)} bars, skipping")
+                continue
 
             report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold,
                                           max_trades=dt_max_trades,
                                           min_bars_between_trades=dt_gap)
-            st.session_state["dt_report"] = report
-            st.session_state["dt_source_df"] = df
-            st.session_state["dt_ticker_used"] = dt_ticker
+
+            # Tag each trade with the ticker
+            for t in report["trades"]:
+                t.setup_name = f"{t.setup_name} [{sym}]"
+            all_trades.extend(report["trades"])
+
+            ts = report["summary"]
+            ticker_summaries.append({
+                "Ticker": sym,
+                "Trades": ts["total_trades"],
+                "Win %": f"{ts['win_rate']:.0%}" if ts["total_trades"] > 0 else "N/A",
+                "P&L": round(ts["total_pnl"], 2),
+                "PF": round(ts["profit_factor"], 2) if ts["total_trades"] > 0 else 0.0,
+                "Sharpe": round(ts["sharpe_annualized"], 2) if ts["total_trades"] > 0 else 0.0,
+                "Bars": f"{df.index[0].strftime('%Y-%m-%d')} to {df.index[-1].strftime('%Y-%m-%d')}",
+            })
+
+            if first_source_df is None:
+                first_source_df = df
+                first_ticker = sym
+
+        progress_bar.empty()
+
+        if not all_trades:
+            st.warning("No trades generated across any ticker.")
+            return
+
+        # Build combined summary using backtester's _compute_summary
+        from backtester import _compute_summary, _build_equity_curve
+        combined_summary = _compute_summary(all_trades, dt_mode)
+        combined_eq = _build_equity_curve(all_trades)
+
+        st.session_state["dt_report"] = {
+            "trades": all_trades,
+            "summary": combined_summary,
+            "equity_curve": combined_eq,
+        }
+        st.session_state["dt_ticker_summaries"] = ticker_summaries
+        st.session_state["dt_source_df"] = first_source_df
+        st.session_state["dt_ticker_used"] = first_ticker
 
     report = st.session_state.get("dt_report")
     if not report:
@@ -1788,7 +1868,14 @@ def render_backtest_daily():
         st.warning("No trades generated. The algo didn't find setups in this data.")
         return
 
-    # ── Summary metrics ──
+    # ── Per-ticker breakdown (if multi-ticker) ──
+    ticker_summaries = st.session_state.get("dt_ticker_summaries", [])
+    if len(ticker_summaries) > 1:
+        st.markdown("**Results by Ticker**")
+        ts_df = pd.DataFrame(ticker_summaries).sort_values("P&L", ascending=False).reset_index(drop=True)
+        st.dataframe(ts_df, width="stretch", hide_index=True, key="dt_ticker_breakdown")
+
+    # ── Combined summary metrics ──
     st.markdown("---")
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Trades", s["total_trades"])
@@ -1815,6 +1902,9 @@ def render_backtest_daily():
     fig_eq.add_hline(y=0, line_dash="dash", line_color="gray")
     fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="P&L ($/share)", height=300, margin=dict(l=40, r=20, t=20, b=40))
     st.plotly_chart(fig_eq, use_container_width=True)
+
+    # ── Setup Performance ──
+    render_setup_performance(s, key_prefix="dt")
 
     # ── MAE / MFE ──
     with st.expander("MAE / MFE Analysis", expanded=False):
