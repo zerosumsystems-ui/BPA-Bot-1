@@ -891,10 +891,11 @@ def analyze_bars(df: pd.DataFrame) -> dict:
     # Apply Contextual Filtration
     all_setups = filter_by_context(all_setups, day_type, market_cycle)
 
-    # --- CONFLUENCE SCORING (no renaming) ---
-    # When multiple distinct pattern families fire at the same entry bar,
-    # boost the best setup's confidence — but KEEP its original name so
-    # backtester results stay attributable to individual setups.
+    # --- BEST-PER-BAR SELECTION (no confluence renaming) ---
+    # Multiple detectors fire at the same entry bar. Keep ONLY the single
+    # best (highest confidence) setup per bar so each trade is cleanly
+    # attributable to one setup type. Give a small confidence boost when
+    # multiple distinct families agree at the same bar.
 
     _FAMILY_KEYWORDS = [
         "Flag", "Double Bottom", "Double Top", "Wedge", "Breakout",
@@ -906,35 +907,25 @@ def analyze_bars(df: pd.DataFrame) -> dict:
     ]
 
     def _setup_family(name: str) -> str:
-        """Map a setup name to its family for dedup purposes."""
         for kw in _FAMILY_KEYWORDS:
             if kw.lower() in name.lower():
                 return kw
         return name
 
-    # Group by entry bar to detect stacking
     bar_map: dict[int, list[Setup]] = {}
     for s in all_setups:
         bar_map.setdefault(s.entry_bar, []).append(s)
 
-    # At each bar, keep only the BEST setup per family.
-    # If multiple families agree, give a small confidence boost.
     deduped: list[Setup] = []
     for eb, setups_at_bar in bar_map.items():
-        # Pick best setup per family
-        best_per_family: dict[str, Setup] = {}
-        for s in setups_at_bar:
-            fam = _setup_family(s.setup_name)
-            if fam not in best_per_family or s.confidence > best_per_family[fam].confidence:
-                best_per_family[fam] = s
-
-        n_families = len(best_per_family)
-        for s in best_per_family.values():
-            # Confluence bonus: small boost per additional family
-            if n_families >= 2:
-                s.confidence = min(0.95, s.confidence + (n_families - 1) * 0.02)
-                s.notes = (s.notes or "") + f" [+{n_families} family confluence]"
-            deduped.append(s)
+        # Count distinct families for confluence bonus
+        families = set(_setup_family(s.setup_name) for s in setups_at_bar)
+        # Pick the single best setup at this bar
+        best = max(setups_at_bar, key=lambda s: s.confidence)
+        # Small confidence boost when multiple families agree
+        if len(families) >= 2:
+            best.confidence = min(0.95, best.confidence + (len(families) - 1) * 0.02)
+        deduped.append(best)
 
     all_setups = deduped
 
