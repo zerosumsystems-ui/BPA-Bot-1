@@ -403,13 +403,25 @@ def run_backtest(
         else:
             continue  # No directional keywords at all — skip
 
-        # Fade logic: flip direction on setups that are reliably wrong
-        if name in FADE_SETUPS:
+        # Calculate Al Brooks levels from signal bar in ORIGINAL direction
+        levels = calculate_al_brooks_levels(signal_bar, direction)
+
+        # Fade logic: keep same entry/stop/target prices, just take the other side.
+        # Original long: entry above bar, stop below, target above entry
+        # Fade: sell at same entry, target = original stop, stop = original target
+        is_fade = name in FADE_SETUPS
+        if is_fade:
             direction = "Short" if direction == "Long" else "Long"
             name = f"Fade {name}"
-
-        # Calculate Al Brooks levels from signal bar
-        levels = calculate_al_brooks_levels(signal_bar, direction)
+            # Swap stop and scalp target (the original stop becomes the fade target)
+            old_stop = levels["stop"]
+            old_scalp = levels["scalp_target"]
+            old_swing = levels["swing_target"]
+            levels["stop"] = old_scalp          # original target is now the stop
+            levels["scalp_target"] = old_stop   # original stop is now the target
+            levels["swing_target"] = old_stop   # same for swing (1:1 fade)
+            # Risk is now distance from entry to new stop (the old target)
+            levels["risk"] = abs(levels["stop"] - levels["entry"])
 
         # Context: EMA position at entry
         entry_close = bars[actual_bar_idx].close
@@ -611,12 +623,20 @@ def run_daily_backtest(
         else:
             continue
 
-        # Fade logic: flip direction on setups that are reliably wrong
-        if name in FADE_SETUPS:
+        # Calculate Al Brooks levels from signal bar in ORIGINAL direction
+        levels = calculate_al_brooks_levels(signal_bar, direction)
+
+        # Fade logic: keep same prices, take the other side
+        is_fade = name in FADE_SETUPS
+        if is_fade:
             direction = "Short" if direction == "Long" else "Long"
             name = f"Fade {name}"
-
-        levels = calculate_al_brooks_levels(signal_bar, direction)
+            old_stop = levels["stop"]
+            old_scalp = levels["scalp_target"]
+            levels["stop"] = old_scalp
+            levels["scalp_target"] = old_stop
+            levels["swing_target"] = old_stop
+            levels["risk"] = abs(levels["stop"] - levels["entry"])
 
         # Context: EMA position at entry
         entry_close = bars[actual_bar_idx].close
