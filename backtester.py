@@ -347,14 +347,22 @@ def run_backtest(
         entry_bar_num = setup["entry_bar"]
         bar_idx = entry_bar_num - 1  # Convert to 0-indexed
 
-        if bar_idx < 1 or bar_idx >= len(bars):
+        if bar_idx < 0 or bar_idx >= len(bars):
             continue
 
         # Enforce minimum spacing between trades
         if entry_bar_num - last_entry_bar < min_bars_between_trades:
             continue
 
-        signal_bar = bars[bar_idx - 1]  # Signal bar is the bar BEFORE entry
+        # The signal bar is the bar AT entry_bar (the bar that defines the setup).
+        # The actual trade entry happens on the NEXT bar (entry_bar + 1).
+        signal_bar = bars[bar_idx]
+        actual_entry_bar = entry_bar_num + 1
+        actual_bar_idx = bar_idx + 1
+
+        if actual_bar_idx >= len(bars):
+            continue
+
         name = setup["setup_name"]
 
         # Determine direction from setup name
@@ -371,7 +379,7 @@ def run_backtest(
             direction = "Short"
         elif bull_score == bear_score and bull_score > 0:
             # Tie-breaker: check if price is above or below EMA
-            direction = "Long" if bars[bar_idx].close > ema[bar_idx] else "Short"
+            direction = "Long" if bars[actual_bar_idx].close > ema[actual_bar_idx] else "Short"
         else:
             continue  # No directional keywords at all — skip
 
@@ -379,8 +387,8 @@ def run_backtest(
         levels = calculate_al_brooks_levels(signal_bar, direction)
 
         # Context: EMA position at entry
-        entry_close = bars[bar_idx].close
-        entry_ema = ema[bar_idx] if bar_idx < len(ema) else 0
+        entry_close = bars[actual_bar_idx].close
+        entry_ema = ema[actual_bar_idx] if actual_bar_idx < len(ema) else 0
         ema_pos = "Above EMA" if entry_close > entry_ema else "Below EMA"
 
         # Context: is this trade with-trend?
@@ -399,9 +407,9 @@ def run_backtest(
                 gap_day = True
 
         trade = Trade(
-            entry_bar=entry_bar_num,
+            entry_bar=actual_entry_bar,
             entry_price=levels["entry"],
-            entry_time=timestamps[bar_idx] if bar_idx < len(timestamps) else "",
+            entry_time=timestamps[actual_bar_idx] if actual_bar_idx < len(timestamps) else "",
             setup_name=name,
             direction=direction,
             order_type=setup.get("order_type", "Stop"),
@@ -423,7 +431,7 @@ def run_backtest(
         # Simulate the trade
         trade = simulate_trade(trade, bars, timestamps, mode=mode, slippage=slippage, commission=commission)
         trades.append(trade)
-        last_entry_bar = entry_bar_num
+        last_entry_bar = actual_entry_bar
 
     # Build report
     summary = _compute_summary(trades, mode)
@@ -539,20 +547,28 @@ def run_daily_backtest(
 
     for setup in setups:
         entry_bar_num = setup["entry_bar"]
-        bar_idx = entry_bar_num - 1
+        bar_idx = entry_bar_num - 1  # Convert to 0-indexed
 
-        if bar_idx < 1 or bar_idx >= len(bars):
+        if bar_idx < 0 or bar_idx >= len(bars):
+            continue
+
+        # The signal bar is the bar AT entry_bar (the bar that defines the setup).
+        # The actual trade entry happens on the NEXT bar (entry_bar + 1).
+        signal_bar = bars[bar_idx]
+        actual_entry_bar = entry_bar_num + 1
+        actual_bar_idx = bar_idx + 1
+
+        if actual_bar_idx >= len(bars):
             continue
 
         # Don't enter while a previous trade is still open — wait until after last exit
-        if entry_bar_num <= last_exit_bar:
+        if actual_entry_bar <= last_exit_bar:
             continue
 
         # Enforce minimum spacing
-        if trades and entry_bar_num - trades[-1].entry_bar < min_bars_between_trades:
+        if trades and actual_entry_bar - trades[-1].entry_bar < min_bars_between_trades:
             continue
 
-        signal_bar = bars[bar_idx - 1]
         name = setup["setup_name"]
 
         # Direction scoring (same as intraday)
@@ -566,23 +582,23 @@ def run_daily_backtest(
         elif bear_score > bull_score:
             direction = "Short"
         elif bull_score == bear_score and bull_score > 0:
-            direction = "Long" if bars[bar_idx].close > ema[bar_idx] else "Short"
+            direction = "Long" if bars[actual_bar_idx].close > ema[actual_bar_idx] else "Short"
         else:
             continue
 
         levels = calculate_al_brooks_levels(signal_bar, direction)
 
         # Context: EMA position at entry
-        entry_close = bars[bar_idx].close
-        entry_ema = ema[bar_idx] if bar_idx < len(ema) else 0
+        entry_close = bars[actual_bar_idx].close
+        entry_ema = ema[actual_bar_idx] if actual_bar_idx < len(ema) else 0
         ema_pos = "Above EMA" if entry_close > entry_ema else "Below EMA"
         with_trend = (direction == "Long" and entry_close > entry_ema) or \
                      (direction == "Short" and entry_close < entry_ema)
 
         trade = Trade(
-            entry_bar=entry_bar_num,
+            entry_bar=actual_entry_bar,
             entry_price=levels["entry"],
-            entry_time=timestamps[bar_idx] if bar_idx < len(timestamps) else "",
+            entry_time=timestamps[actual_bar_idx] if actual_bar_idx < len(timestamps) else "",
             setup_name=name,
             direction=direction,
             order_type=setup.get("order_type", "Stop"),

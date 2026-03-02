@@ -477,16 +477,33 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         name="Stop Loss", showlegend=True,
     ))
 
-    # Target line
-    target = trade.scalp_target if trade.scalp_target != trade.swing_target else trade.swing_target
-    if hasattr(trade, 'swing_target') and trade.swing_target > 0:
+    # Target line — show the target that was actually used for the trade
+    # Determine from exit_reason whether scalp or swing target was used
+    if hasattr(trade, 'exit_reason') and "scalp" in str(trade.exit_reason):
+        target = trade.scalp_target
+        target_label = "Scalp Target"
+    elif hasattr(trade, 'exit_reason') and "swing" in str(trade.exit_reason):
         target = trade.swing_target
+        target_label = "Swing Target"
+    else:
+        # Default: show scalp target (1:1) since that's the more conservative one
+        # Show both if they differ
+        target = trade.scalp_target
+        target_label = "Scalp Target"
     fig.add_trace(go.Scatter(
         x=[entry_x - 0.5, exit_x + 0.5],
         y=[target, target],
         mode="lines", line=dict(color="#00C853", width=1.5, dash="dash"),
-        name="Target", showlegend=True,
+        name=target_label, showlegend=True,
     ))
+    # Also show swing target as a lighter line if different from scalp
+    if trade.swing_target != trade.scalp_target:
+        fig.add_trace(go.Scatter(
+            x=[entry_x - 0.5, exit_x + 0.5],
+            y=[trade.swing_target, trade.swing_target],
+            mode="lines", line=dict(color="#00C853", width=1, dash="dot"),
+            name="Swing Target", showlegend=True,
+        ))
 
     fig.update_layout(
         title=chart_title,
