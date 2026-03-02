@@ -573,6 +573,7 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
     # Summary table
     rows = []
     for name, s in group_stats.items():
+        expectancy = s["avg_pnl"]  # avg P&L per trade = expectancy
         rows.append({
             "Setup": name,
             "Trades": s["count"],
@@ -580,16 +581,28 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
             "L": s["losses"],
             "Win %": f"{s['win_rate']:.0%}",
             "P&L": round(s["pnl"], 2),
-            "Avg P&L": round(s["avg_pnl"], 2),
+            "Expectancy": round(expectancy, 2),
             "Avg R": round(s["avg_r"], 2),
             "PF": round(s["profit_factor"], 2) if s["profit_factor"] != float('inf') else 999.0,
             "Best": round(s["best_trade"], 2),
             "Worst": round(s["worst_trade"], 2),
         })
 
-    perf_df = pd.DataFrame(rows).sort_values("P&L", ascending=False).reset_index(drop=True)
+    perf_df = pd.DataFrame(rows).sort_values("Expectancy", ascending=False).reset_index(drop=True)
     st.markdown(f"**Setup Performance** -- {len(group_stats)} setup groups, {len(trades)} total trades")
-    st.dataframe(perf_df, width="stretch", hide_index=True, key=f"{key_prefix}_setup_perf")
+
+    def _color_by_expectancy(row):
+        val = row.get("Expectancy", 0)
+        if val > 0:
+            return ["background-color: #e8f5e9"] * len(row)  # green
+        elif val < 0:
+            return ["background-color: #ffebee"] * len(row)  # red
+        return [""] * len(row)
+
+    st.dataframe(
+        perf_df.style.apply(_color_by_expectancy, axis=1),
+        width="stretch", hide_index=True, key=f"{key_prefix}_setup_perf",
+    )
 
     # Per-group expanders sorted by P&L
     sorted_groups = sorted(group_stats.keys(), key=lambda n: group_stats[n]["pnl"], reverse=True)
@@ -2811,7 +2824,7 @@ def render_review_trades():
     st.markdown("**Per-Setup Classification Breakdown**")
 
     setup_data = defaultdict(lambda: {
-        "trades": 0, "pnl": 0.0, "wins": 0,
+        "trades": 0, "pnl": 0.0, "wins": 0, "r_sum": 0.0,
         "GTGR": 0, "GTBR": 0, "BTGR": 0, "BTBR": 0,
     })
 
@@ -2827,22 +2840,24 @@ def render_review_trades():
         d = setup_data[norm_name]
         d["trades"] += 1
         d["pnl"] += t.pnl
+        d["r_sum"] += t.r_multiple
         if t.is_winner: d["wins"] += 1
         cat = trade_cats.get(id(t), "Bad Trade, Bad Result")
         d[cat_short.get(cat, "BTBR")] += 1
 
     # Build evaluation rows with verdict
     eval_rows = []
-    for name, d in sorted(setup_data.items(), key=lambda x: -x[1]["trades"]):
+    for name, d in setup_data.items():
         total = d["trades"]
         wr = d["wins"] / total * 100 if total > 0 else 0
+        expectancy = d["pnl"] / total if total > 0 else 0
+        avg_r = d["r_sum"] / total if total > 0 else 0
         good_trade_pct = (d["GTGR"] + d["GTBR"]) / total * 100 if total > 0 else 0
-        good_result_pct = (d["GTGR"] + d["BTGR"]) / total * 100 if total > 0 else 0
 
-        # Verdict logic
-        if good_trade_pct >= 50 and wr >= 50:
+        # Verdict based on expectancy + good trade quality
+        if expectancy > 0 and good_trade_pct >= 50:
             verdict = "TAKE"
-        elif good_trade_pct >= 40 and wr >= 40:
+        elif expectancy > 0 or (good_trade_pct >= 40 and wr >= 40):
             verdict = "MAYBE"
         elif total < 5:
             verdict = "LOW DATA"
@@ -2853,7 +2868,9 @@ def render_review_trades():
             "Setup": name,
             "Trades": total,
             "Win%": f"{wr:.0f}%",
-            "P&L": f"${d['pnl']:+.2f}",
+            "Expectancy": round(expectancy, 2),
+            "Avg R": round(avg_r, 2),
+            "P&L": round(d["pnl"], 2),
             "GTGR": d["GTGR"],
             "GTBR": d["GTBR"],
             "BTGR": d["BTGR"],
@@ -2862,24 +2879,29 @@ def render_review_trades():
             "Verdict": verdict,
         })
 
-    eval_df = pd.DataFrame(eval_rows)
+    eval_df = pd.DataFrame(eval_rows).sort_values("Expectancy", ascending=False).reset_index(drop=True)
+
+    def _color_eval_row(row):
+        exp = row.get("Expectancy", 0)
+        verdict = row.get("Verdict", "")
+        if exp > 0:
+            return ["background-color: #e8f5e9"] * len(row)
+        elif exp < 0 and verdict == "AVOID":
+            return ["background-color: #ffebee"] * len(row)
+        elif exp < 0:
+            return ["background-color: #fff3e0"] * len(row)
+        return [""] * len(row)
+
     st.dataframe(
-        eval_df.style.apply(
-            lambda row: [
-                "background-color: #e8f5e9" if row["Verdict"] == "TAKE"
-                else "background-color: #fff3e0" if row["Verdict"] == "MAYBE"
-                else "background-color: #ffebee" if row["Verdict"] == "AVOID"
-                else ""
-            ] * len(row), axis=1
-        ),
+        eval_df.style.apply(_color_eval_row, axis=1),
         use_container_width=True, hide_index=True, key="rv_eval_table",
     )
 
     # Legend
     st.caption("GTGR = Good Trade Good Result | GTBR = Good Trade Bad Result | "
                "BTGR = Bad Trade Good Result | BTBR = Bad Trade Bad Result")
-    st.caption("Verdict: TAKE = 50%+ good trades & 50%+ win rate | "
-               "MAYBE = 40%+ both | AVOID = below thresholds | LOW DATA = <5 trades")
+    st.caption("Verdict: TAKE = positive expectancy + 50%+ good trades | "
+               "MAYBE = positive expectancy OR 40%+ quality & wins | AVOID = negative expectancy")
 
     # ═══════════════════════════════════════════════════════════════════
     #  SECTION 2: INDIVIDUAL TRADE REVIEW
