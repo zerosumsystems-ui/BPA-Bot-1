@@ -69,15 +69,22 @@ ENCYCLOPEDIA_PATH = BASE_DIR / "brooks_encyclopedia_learnings.md"
 TRAINING_CSV = DATA_DIR / "training_data.csv"
 DO_NOT_TRADE_JSON = DATA_DIR / "do_not_trade.json"
 
-# ── Preset ticker groups ──
-TICKER_PRESETS = {
-    "Custom": "",
-    "Mag 7": "AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA",
-    "Most Liquid": "SPY, QQQ, AAPL, MSFT, NVDA, AMZN, TSLA, META, AMD, GOOG",
-    "Index ETFs": "SPY, QQQ, IWM, DIA",
-    "Mega Cap Tech": "AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AVGO, ORCL, CRM",
-    "Semis": "NVDA, AMD, AVGO, QCOM, MU, INTC, TSM, MRVL, KLAC, LRCX",
+# ── Ticker universe: groups + individual tickers in one list ──
+TICKER_OPTIONS = {
+    # Groups
+    "Mag 7": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"],
+    "Most Liquid": ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "META", "AMD", "GOOG"],
+    "Index ETFs": ["SPY", "QQQ", "IWM", "DIA"],
+    "Mega Cap Tech": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AVGO", "ORCL", "CRM"],
+    "Semis": ["NVDA", "AMD", "AVGO", "QCOM", "MU", "INTC", "TSM", "MRVL", "KLAC", "LRCX"],
+    # Singles
+    "SPY": ["SPY"], "QQQ": ["QQQ"], "IWM": ["IWM"], "DIA": ["DIA"],
+    "AAPL": ["AAPL"], "MSFT": ["MSFT"], "GOOGL": ["GOOGL"], "AMZN": ["AMZN"],
+    "NVDA": ["NVDA"], "META": ["META"], "TSLA": ["TSLA"], "AMD": ["AMD"],
+    "GOOG": ["GOOG"], "AVGO": ["AVGO"], "ORCL": ["ORCL"], "CRM": ["CRM"],
+    "NFLX": ["NFLX"], "INTC": ["INTC"], "MU": ["MU"], "QCOM": ["QCOM"],
 }
+TICKER_OPTION_LABELS = list(TICKER_OPTIONS.keys())
 
 CSV_COLUMNS = [
     "timestamp", "ticker",
@@ -2131,18 +2138,16 @@ def render_scanner():
     st.markdown("---")
 
     # ── Scanner Controls ──
-    sc_preset = st.selectbox("Group", list(TICKER_PRESETS.keys()), key="sc_preset")
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([2, 1])
     with col1:
-        default_tickers = TICKER_PRESETS[sc_preset] if sc_preset != "Custom" else "AAPL, QQQ, TSLA, MSFT, NVDA, SPY"
-        ticker_input = st.text_input("Tickers", value=default_tickers, key="sc_tickers")
+        sc_selection = st.selectbox("Ticker / Group", TICKER_OPTION_LABELS, index=TICKER_OPTION_LABELS.index("Most Liquid"), key="sc_selection")
     with col2:
         scanner_days = st.number_input("Days Back", min_value=1, max_value=1825, value=5, key="scanner_days")
 
-    if st.button("Run Scanner", type="primary"):
-        tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+    if st.button("Run Scanner", type="primary", use_container_width=True):
+        tickers = TICKER_OPTIONS.get(sc_selection, [sc_selection])
         if not tickers:
-            st.warning("Enter at least one ticker.")
+            st.warning("Select a ticker or group.")
             return
 
         import datetime as _dt
@@ -2312,42 +2317,27 @@ def render_backtest():
     """Backtesting tab with full report, equity curve, and trade log."""
     from backtester import run_backtest, run_multi_day_backtest, trades_to_dataframe
 
-    # Preset group selector
-    preset_names = list(TICKER_PRESETS.keys())
-    bt_preset = st.selectbox("Group", preset_names, key="bt_preset")
-
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        default_val = TICKER_PRESETS[bt_preset] if bt_preset != "Custom" else "SPY"
-        bt_tickers_raw = st.text_input("Tickers", value=default_val, key="bt_tickers_input").upper().strip()
-    with col2:
-        bt_days = st.number_input("Days", min_value=1, max_value=9999, value=30, key="bt_days",
-                                   help="Trading days. yFinance 5m limited to ~60 cal days.")
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        bt_selection = st.selectbox("Ticker / Group", TICKER_OPTION_LABELS, index=TICKER_OPTION_LABELS.index("Mag 7"), key="bt_selection")
+    with c2:
+        bt_days = st.number_input("Days", min_value=1, max_value=9999, value=30, key="bt_days")
 
     run_btn = st.button("Run Backtest", key="bt_run", type="primary", use_container_width=True)
 
-    # Advanced settings
-    with st.expander("Advanced Settings", expanded=False):
+    with st.expander("Settings", expanded=False):
         ac1, ac2, ac3 = st.columns(3)
         with ac1:
-            bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode",
-                                    help="Scalp = 1:1 R/R. Swing = 2:1 R/R.")
+            bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode")
         with ac2:
-            bt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="bt_slippage",
-                                           help="$/share per fill")
+            bt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="bt_slippage")
         with ac3:
-            bt_commission = st.number_input("Commission", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="bt_commission",
-                                             help="$/share/side")
+            bt_commission = st.number_input("Comm", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="bt_commission")
 
-    # Parse tickers
-    bt_ticker_list = [t.strip().upper() for t in bt_tickers_raw.split(",") if t.strip()]
+    bt_ticker_list = TICKER_OPTIONS.get(bt_selection, [bt_selection])
 
     if run_btn:
-        if not bt_ticker_list:
-            st.warning("Enter at least one ticker.")
-            return
-
-        with st.spinner(f"Backtesting {len(bt_ticker_list)} ticker(s) over {bt_days} days ({bt_mode} mode)..."):
+        with st.spinner(f"Backtesting {bt_selection} over {bt_days} days..."):
             source = _init_data_source_v2()
             import datetime as _dt
             end = _dt.date.today()
@@ -2466,19 +2456,22 @@ def render_backtest():
         st.warning("No trades generated. The algo didn't find setups in this data.")
         return
 
-    # ── Post-run filters ──
+    # ── Filters ──
     st.markdown("---")
     setup_names_all = sorted(set(_normalize_setup_name(t.setup_name) for t in all_trades))
-    bt_setup_filter = st.multiselect("Setup", setup_names_all, default=[], key="bt_setup_filter")
+    cycle_names_all = sorted(set(getattr(t, "market_cycle", "") or "Unknown" for t in all_trades))
 
-    bf1, bf2, bf3 = st.columns(3)
+    bf1, bf2 = st.columns(2)
     with bf1:
-        bt_dir_filter = st.selectbox("Dir", ["All", "Long", "Short"], key="bt_dir_filter")
+        bt_setup_filter = st.multiselect("Setup", setup_names_all, default=[], key="bt_setup_filter")
     with bf2:
-        bt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="bt_trend_filter")
+        bt_dir_filter = st.selectbox("Direction", ["All", "Long", "Short"], key="bt_dir_filter")
+
+    bf3, bf4 = st.columns(2)
     with bf3:
-        day_types_all = sorted(set(getattr(t, "day_type", "") or "Unknown" for t in all_trades))
-        bt_daytype_filter = st.selectbox("Day Type", ["All"] + day_types_all, key="bt_daytype_filter")
+        bt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="bt_trend_filter")
+    with bf4:
+        bt_cycle_filter = st.selectbox("Cycle", ["All"] + cycle_names_all, key="bt_cycle_filter")
 
     # Apply filters
     trades = all_trades
@@ -2490,16 +2483,15 @@ def render_backtest():
         trades = [t for t in trades if getattr(t, "with_trend", False)]
     elif bt_trend_filter == "Counter":
         trades = [t for t in trades if not getattr(t, "with_trend", True)]
-    if bt_daytype_filter != "All":
-        trades = [t for t in trades if (getattr(t, "day_type", "") or "Unknown") == bt_daytype_filter]
+    if bt_cycle_filter != "All":
+        trades = [t for t in trades if (getattr(t, "market_cycle", "") or "Unknown") == bt_cycle_filter]
 
     if not trades:
         st.warning("No trades match filters.")
         return
 
-    is_filtered = len(trades) != len(all_trades)
-    if is_filtered:
-        st.caption(f"Showing {len(trades)} of {len(all_trades)} trades")
+    if len(trades) != len(all_trades):
+        st.caption(f"{len(trades)} of {len(all_trades)} trades")
 
     # Recompute stats on filtered trades
     from backtester import _compute_summary, _build_equity_curve
@@ -2564,7 +2556,7 @@ def render_backtest():
         if idx < len(trades):
             sel_trade = trades[idx]
             daily_dfs = st.session_state.get("bt_daily_dfs", {})
-            used_ticker = st.session_state.get("bt_ticker_used", bt_ticker)
+            used_ticker = st.session_state.get("bt_ticker_used", bt_selection)
             # Find which day this trade belongs to by matching entry_time date
             trade_date = sel_trade.entry_time[:10] if sel_trade.entry_time else ""
             day_df = daily_dfs.get(trade_date)
@@ -2581,7 +2573,7 @@ def render_backtest():
                 st.caption("Chart data not available for this trade's date.")
 
     csv_data = trade_df.to_csv(index=False)
-    st.download_button("Download CSV", csv_data, f"backtest_{bt_ticker}_{bt_mode}.csv", "text/csv")
+    st.download_button("Download CSV", csv_data, f"backtest_{bt_selection}_{bt_mode}.csv", "text/csv")
 
 
 # ─────────────────────────── DAILY BACKTEST TAB ──────────────────────────────
@@ -2590,47 +2582,31 @@ def render_backtest_daily():
     """Daily-chart backtesting — uses daily bars so yFinance can go back years."""
     from backtester import run_daily_backtest, trades_to_dataframe
 
-    # Preset group selector
-    preset_names = list(TICKER_PRESETS.keys())
-    dt_preset = st.selectbox("Group", preset_names, key="dt_preset")
-
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        default_val = TICKER_PRESETS[dt_preset] if dt_preset != "Custom" else "SPY, QQQ, AAPL"
-        dt_tickers_raw = st.text_input("Tickers", value=default_val, key="dt_tickers")
-    with col2:
-        dt_years = st.selectbox("Period", ["2y", "5y", "10y", "20y", "max", "1y"], key="dt_period",
-                                 help="How far back to test.")
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        dt_selection = st.selectbox("Ticker / Group", TICKER_OPTION_LABELS, index=TICKER_OPTION_LABELS.index("Mag 7"), key="dt_selection")
+    with c2:
+        dt_years = st.selectbox("Period", ["2y", "5y", "10y", "20y", "max", "1y"], key="dt_period")
 
     run_btn = st.button("Run Backtest", key="dt_run", type="primary", use_container_width=True)
 
-    # Advanced settings
-    with st.expander("Advanced Settings", expanded=False):
+    with st.expander("Settings", expanded=False):
         dc1, dc2, dc3 = st.columns(3)
         with dc1:
-            dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode",
-                                    help="Swing = 2:1. Scalp = 1:1.")
+            dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode")
         with dc2:
-            dt_hold = st.number_input("Max Hold", min_value=2, max_value=500, value=15, key="dt_hold",
-                                       help="Max days to hold")
+            dt_hold = st.number_input("Max Hold", min_value=2, max_value=500, value=15, key="dt_hold")
         with dc3:
-            dt_gap = st.number_input("Min Gap", min_value=0, max_value=20, value=3, key="dt_gap",
-                                      help="Min bars between trades")
+            dt_gap = st.number_input("Min Gap", min_value=0, max_value=20, value=3, key="dt_gap")
         dc4, dc5 = st.columns(2)
         with dc4:
-            dt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="dt_slippage",
-                                           help="$/share per fill")
+            dt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="dt_slippage")
         with dc5:
-            dt_commission = st.number_input("Commission", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="dt_commission",
-                                             help="$/share/side")
+            dt_commission = st.number_input("Comm", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="dt_commission")
 
-    # Parse tickers
-    dt_ticker_list = [t.strip().upper() for t in dt_tickers_raw.split(",") if t.strip()]
+    dt_ticker_list = TICKER_OPTIONS.get(dt_selection, [dt_selection])
 
     if run_btn:
-        if not dt_ticker_list:
-            st.warning("Enter at least one ticker.")
-            return
 
         try:
             import yfinance as yf
@@ -2731,19 +2707,22 @@ def render_backtest_daily():
         ts_df = pd.DataFrame(ticker_summaries).sort_values("P&L", ascending=False).reset_index(drop=True)
         st.dataframe(ts_df, width="stretch", hide_index=True, key="dt_ticker_breakdown")
 
-    # ── Post-run filters ──
+    # ── Filters ──
     st.markdown("---")
     dt_setup_names_all = sorted(set(_normalize_setup_name(t.setup_name) for t in all_trades))
-    dt_setup_filter = st.multiselect("Setup", dt_setup_names_all, default=[], key="dt_setup_filter")
+    dt_cycle_names_all = sorted(set(getattr(t, "market_cycle", "") or "Unknown" for t in all_trades))
 
-    df1, df2, df3 = st.columns(3)
+    df1, df2 = st.columns(2)
     with df1:
-        dt_dir_filter = st.selectbox("Dir", ["All", "Long", "Short"], key="dt_dir_filter")
+        dt_setup_filter = st.multiselect("Setup", dt_setup_names_all, default=[], key="dt_setup_filter")
     with df2:
-        dt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="dt_trend_filter")
+        dt_dir_filter = st.selectbox("Direction", ["All", "Long", "Short"], key="dt_dir_filter")
+
+    df3, df4 = st.columns(2)
     with df3:
-        dt_day_types_all = sorted(set(getattr(t, "day_type", "") or "Unknown" for t in all_trades))
-        dt_daytype_filter = st.selectbox("Day Type", ["All"] + dt_day_types_all, key="dt_daytype_filter")
+        dt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="dt_trend_filter")
+    with df4:
+        dt_cycle_filter = st.selectbox("Cycle", ["All"] + dt_cycle_names_all, key="dt_cycle_filter")
 
     # Apply filters
     trades = all_trades
@@ -2755,16 +2734,15 @@ def render_backtest_daily():
         trades = [t for t in trades if getattr(t, "with_trend", False)]
     elif dt_trend_filter == "Counter":
         trades = [t for t in trades if not getattr(t, "with_trend", True)]
-    if dt_daytype_filter != "All":
-        trades = [t for t in trades if (getattr(t, "day_type", "") or "Unknown") == dt_daytype_filter]
+    if dt_cycle_filter != "All":
+        trades = [t for t in trades if (getattr(t, "market_cycle", "") or "Unknown") == dt_cycle_filter]
 
     if not trades:
         st.warning("No trades match filters.")
         return
 
-    is_filtered = len(trades) != len(all_trades)
-    if is_filtered:
-        st.caption(f"Showing {len(trades)} of {len(all_trades)} trades")
+    if len(trades) != len(all_trades):
+        st.caption(f"{len(trades)} of {len(all_trades)} trades")
 
     # Recompute stats on filtered trades
     from backtester import _compute_summary, _build_equity_curve
