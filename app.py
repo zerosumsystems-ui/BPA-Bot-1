@@ -312,6 +312,9 @@ def fetch_chart_data_v2(ticker: str, start_date: str | None = None, end_date: st
         df = source.fetch_historical(ticker, start_date, end_date)
 
         if df is None or df.empty:
+            # Log error details if available for debugging
+            if hasattr(source, '_last_error_message') and source._last_error_message:
+                logging.getLogger(__name__).warning(f"Data fetch failed for {ticker}: {source._last_error_message}")
             return None
         # Flatten multi-level columns if present (yFinance fallback may produce these)
         if isinstance(df.columns, pd.MultiIndex):
