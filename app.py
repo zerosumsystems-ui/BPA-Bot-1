@@ -1798,6 +1798,55 @@ def render_training_lab():
 
     st.plotly_chart(fig, use_container_width=True, key="main_chart")
 
+    # ── Best Setup: Stop Loss / Profit Target / Risk ──
+    bot_setups_data = analysis.get("setups", [])
+    best_idx = 0
+    if best_trade and best_trade != "No setups detected":
+        try:
+            best_idx = int(best_trade.split(":")[0]) - 1
+        except (ValueError, IndexError):
+            best_idx = 0
+
+    if bot_setups_data and best_idx < len(bot_setups_data):
+        bs = bot_setups_data[best_idx]
+        if isinstance(bs, dict) and bs.get("stop_loss"):
+            sl_col1, sl_col2, sl_col3, sl_col4, sl_col5, sl_col6 = st.columns(6)
+            sl_col1.metric("Direction", bs.get("direction", "—"))
+            sl_col2.metric("Entry", f"${bs.get('entry_price', 0):.2f}")
+            sl_col3.metric("Stop Loss", f"${bs.get('stop_loss', 0):.2f}")
+            sl_col4.metric("Risk/Share", f"${bs.get('risk', 0):.2f}")
+            sl_col5.metric("Scalp Target (1R)", f"${bs.get('scalp_target', 0):.2f}")
+            sl_col6.metric("Swing Target (2R)", f"${bs.get('swing_target', 0):.2f}")
+
+    # ── Trade Outcome Classification ──
+    outcome_categories = [
+        "Good Trade, Good Result",
+        "Good Trade, Bad Result",
+        "Bad Trade, Good Result",
+        "Bad Trade, Bad Result",
+        "N/A — No Trade Taken",
+    ]
+    oc1, oc2 = st.columns([1, 2])
+    with oc1:
+        trade_outcome = st.selectbox(
+            "Trade Outcome", outcome_categories, index=4,
+            key=f"outcome_{ticker}",
+            help="Classify the best setup: was the trade idea good? Did it produce a good result?",
+        )
+    with oc2:
+        outcome_colors = {
+            "Good Trade, Good Result": "#00C853",
+            "Good Trade, Bad Result": "#FF9800",
+            "Bad Trade, Good Result": "#FF9800",
+            "Bad Trade, Bad Result": "#FF1744",
+            "N/A — No Trade Taken": "#9E9E9E",
+        }
+        oc_color = outcome_colors.get(trade_outcome, "#999")
+        st.markdown(
+            f'<div style="background:{oc_color};color:white;padding:8px 16px;border-radius:8px;'
+            f'font-weight:600;display:inline-block;margin-top:28px;">{trade_outcome}</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Action Buttons: Approve / Skip / Illiquid ──
     btn_col1, btn_col2, btn_col3 = st.columns(3)
@@ -1810,7 +1859,7 @@ def render_training_lab():
 
     # ── Teacher Override & JSON Analysis ──
     col_json, col_teacher = st.columns(2, gap="large")
-    
+
     with col_json:
         st.subheader("Bot's JSON Analysis")
         if "_error" in analysis:
@@ -1864,6 +1913,7 @@ def render_training_lab():
                 row[f"override_setup_{i+1}_order_type"] = obj.get("order_type", "")
 
         row["override_action"] = action if not str(action).startswith("Approve Bot") else analysis.get("action", "")
+        row["trade_outcome"] = trade_outcome
         row["teacher_notes"] = notes
 
         # Update Encyclopedia if notes exist

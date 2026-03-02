@@ -999,21 +999,57 @@ def analyze_bars(df: pd.DataFrame) -> dict:
     else:
         reasoning = f"No high-probability setups detected. Day type: {day_type}, Market cycle: {market_cycle}."
 
+    # Build enriched setup list with stop/target levels
+    enriched_setups = []
+    for i, s in enumerate(top_setups):
+        direction = "Long"
+        sell_kw = ["Bear", "Top", "Sell", "Low", "Short"]
+        if any(kw in s.setup_name for kw in sell_kw):
+            direction = "Short"
+
+        # Compute Al Brooks stop / target using signal bar
+        sig_idx = s.signal_bar if s.signal_bar > 0 else max(0, s.entry_bar - 1)
+        if 0 <= sig_idx < len(bars):
+            sb = bars[sig_idx]
+            tick = 0.01
+            if direction == "Long":
+                entry = round(sb.high + tick, 2)
+                stop = round(sb.low - tick, 2)
+                risk = max(round(entry - stop, 2), tick)
+                scalp = round(entry + risk, 2)
+                swing = round(entry + 2 * risk, 2)
+            else:
+                entry = round(sb.low - tick, 2)
+                stop = round(sb.high + tick, 2)
+                risk = max(round(stop - entry, 2), tick)
+                scalp = round(entry - risk, 2)
+                swing = round(entry - 2 * risk, 2)
+        else:
+            entry = s.entry_price
+            stop = 0.0
+            risk = 0.0
+            scalp = 0.0
+            swing = 0.0
+
+        enriched_setups.append({
+            "rank": i + 1,
+            "setup_name": s.setup_name,
+            "entry_bar": s.entry_bar,
+            "entry_price": entry if entry else s.entry_price,
+            "order_type": s.order_type,
+            "confidence": s.confidence,
+            "direction": direction,
+            "stop_loss": stop,
+            "risk": risk,
+            "scalp_target": scalp,
+            "swing_target": swing,
+        })
+
     return {
         "day_type": day_type,
         "market_cycle": market_cycle,
         "reasoning": reasoning,
-        "setups": [
-            {
-                "rank": i + 1,
-                "setup_name": s.setup_name,
-                "entry_bar": s.entry_bar,
-                "entry_price": s.entry_price,
-                "order_type": s.order_type,
-                "confidence": s.confidence,
-            }
-            for i, s in enumerate(top_setups)
-        ],
+        "setups": enriched_setups,
         "action": action,
         "confidence": round(overall_conf, 2),
     }
