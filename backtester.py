@@ -325,6 +325,9 @@ def run_backtest(
     if not setups:
         return _empty_report()
 
+    # Sort chronologically for sequential simulation
+    setups.sort(key=lambda s: s["entry_bar"])
+
     # Convert setups to trades
     trades: list[Trade] = []
     last_entry_bar = -999
@@ -483,6 +486,10 @@ def run_daily_backtest(
 
     if not setups:
         return _empty_report()
+
+    # CRITICAL: sort setups chronologically so the backtester walks forward
+    # (analyze_bars returns them sorted by confidence, which breaks sequential simulation)
+    setups.sort(key=lambda s: s["entry_bar"])
 
     # Convert setups to trades
     trades: list[Trade] = []
