@@ -501,10 +501,17 @@ class YFinanceSource(DataSource):
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
+            # Normalize column names to capitalized (yfinance 0.2.31+ returns lowercase)
+            col_map = {c.lower(): c.capitalize() for c in df.columns if isinstance(c, str)}
+            # Handle 'adj close' -> 'Adj Close' specially
+            if "adj close" in col_map:
+                col_map["adj close"] = "Adj Close"
+            df.columns = [col_map.get(c.lower(), c) if isinstance(c, str) else c for c in df.columns]
+
             # Ensure required columns exist
             required = ["Open", "High", "Low", "Close"]
             if not all(c in df.columns for c in required):
-                logger.warning(f"yFinance: missing columns for {ticker}")
+                logger.warning(f"yFinance: missing columns for {ticker}: got {list(df.columns)}")
                 return None
 
             df = df.dropna(subset=required)
