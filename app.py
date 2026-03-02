@@ -498,23 +498,30 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
 
 def _normalize_setup_name(name: str) -> str:
     """Normalize setup names so variants group together.
-    'High 1 Bull Flag' / 'High 2 Bull Flag' → 'Bull Flag'
-    'Low 3 Bear Flag' → 'Bear Flag'
+    'High 1 Bull Flag' / 'High 2 Bull Flag' / 'Custom High 1 Bull Flag' → 'Bull Flag'
+    'Low 3 Bear Flag' / 'Custom Low 2 Bear Flag' → 'Bear Flag'
     'Confluence: A + B' → 'Confluence'
+    'Custom Wedge Top' / 'Wedge Top' → 'Wedge Top'
     Everything else stays as-is.
     """
     import re
     if name.startswith("Confluence:"):
         return "Confluence"
+    # Strip "Custom " prefix so template_algo variants group with core setups
+    clean = re.sub(r"^Custom\s+", "", name)
     # High N Bull Flag → Bull Flag
-    m = re.match(r"^High \d+ Bull Flag$", name)
+    m = re.match(r"^High \d\+?\s*Bull Flag$", clean)
     if m:
         return "Bull Flag"
     # Low N Bear Flag → Bear Flag
-    m = re.match(r"^Low \d+ Bear Flag$", name)
+    m = re.match(r"^Low \d\+?\s*Bear Flag$", clean)
     if m:
         return "Bear Flag"
-    return name
+    # H2 Pullback to EMA → Pullback to EMA, L2 Pullback to EMA → Pullback to EMA
+    m = re.match(r"^[HL]\d\s+(.+)$", clean)
+    if m:
+        return m.group(1)
+    return clean
 
 
 def _compute_group_stats(group_trades: list) -> dict:
