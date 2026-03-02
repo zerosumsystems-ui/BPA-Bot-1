@@ -2323,15 +2323,19 @@ def render_backtest():
     with c2:
         bt_days = st.number_input("Days", min_value=1, max_value=9999, value=30, key="bt_days")
 
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        bt_mode = st.selectbox("Setup", ["scalp", "swing"], key="bt_mode", help="Scalp = 1:1 R/R targets. Swing = 2:1 R/R targets.")
+    with sc2:
+        bt_trend = st.selectbox("Trend Filter", ["All", "With Trend", "Counter Trend"], key="bt_trend", help="Filter trades by whether they are in the direction of the trend (price vs EMA).")
+
     run_btn = st.button("Run Backtest", key="bt_run", type="primary", use_container_width=True)
 
-    with st.expander("Settings", expanded=False):
-        ac1, ac2, ac3 = st.columns(3)
+    with st.expander("Advanced Settings", expanded=False):
+        ac1, ac2 = st.columns(2)
         with ac1:
-            bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode")
-        with ac2:
             bt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="bt_slippage")
-        with ac3:
+        with ac2:
             bt_commission = st.number_input("Comm", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="bt_commission")
 
     bt_ticker_list = TICKER_OPTIONS.get(bt_selection, [bt_selection])
@@ -2421,6 +2425,12 @@ def render_backtest():
                 })
 
             progress_bar.empty()
+
+            # Apply trend filter
+            if bt_trend == "With Trend":
+                all_trades = [t for t in all_trades if t.with_trend]
+            elif bt_trend == "Counter Trend":
+                all_trades = [t for t in all_trades if not t.with_trend]
 
             if not all_trades:
                 st.warning("No trades generated across all tickers.")
@@ -2588,20 +2598,24 @@ def render_backtest_daily():
     with c2:
         dt_years = st.selectbox("Period", ["2y", "5y", "10y", "20y", "max", "1y"], key="dt_period")
 
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        dt_mode = st.selectbox("Setup", ["swing", "scalp"], key="dt_mode", help="Swing = 2:1 R/R targets. Scalp = 1:1 R/R targets.")
+    with sc2:
+        dt_trend = st.selectbox("Trend Filter", ["All", "With Trend", "Counter Trend"], key="dt_trend", help="Filter trades by whether they are in the direction of the trend (price vs EMA).")
+
     run_btn = st.button("Run Backtest", key="dt_run", type="primary", use_container_width=True)
 
-    with st.expander("Settings", expanded=False):
-        dc1, dc2, dc3 = st.columns(3)
+    with st.expander("Advanced Settings", expanded=False):
+        dc1, dc2 = st.columns(2)
         with dc1:
-            dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode")
-        with dc2:
             dt_hold = st.number_input("Max Hold", min_value=2, max_value=500, value=15, key="dt_hold")
-        with dc3:
+        with dc2:
             dt_gap = st.number_input("Min Gap", min_value=0, max_value=20, value=3, key="dt_gap")
-        dc4, dc5 = st.columns(2)
-        with dc4:
+        dc3, dc4 = st.columns(2)
+        with dc3:
             dt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="dt_slippage")
-        with dc5:
+        with dc4:
             dt_commission = st.number_input("Comm", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="dt_commission")
 
     dt_ticker_list = TICKER_OPTIONS.get(dt_selection, [dt_selection])
@@ -2670,6 +2684,12 @@ def render_backtest_daily():
                 first_ticker = sym
 
         progress_bar.empty()
+
+        # Apply trend filter
+        if dt_trend == "With Trend":
+            all_trades = [t for t in all_trades if t.with_trend]
+        elif dt_trend == "Counter Trend":
+            all_trades = [t for t in all_trades if not t.with_trend]
 
         if not all_trades:
             st.warning("No trades generated across any ticker.")
