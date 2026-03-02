@@ -2401,7 +2401,8 @@ def render_backtest():
                 st.caption(f"Got **{len(daily_dfs)}** trading days of data (requested {bt_days})")
 
             report = run_multi_day_backtest(daily_dfs, mode=bt_mode,
-                                                   slippage=bt_slippage, commission=bt_commission)
+                                                   slippage=bt_slippage, commission=bt_commission,
+                                                   ticker=bt_ticker)
             st.session_state["bt_report"] = report
             st.session_state["bt_daily_dfs"] = daily_dfs
             st.session_state["bt_ticker_used"] = bt_ticker
@@ -2576,7 +2577,8 @@ def render_backtest_daily():
 
             report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold,
                                           min_bars_between_trades=dt_gap,
-                                          slippage=dt_slippage, commission=dt_commission)
+                                          slippage=dt_slippage, commission=dt_commission,
+                                          ticker=sym)
 
             # Tag each trade with the ticker (keep setup_name clean for grouping)
             for t in report["trades"]:
@@ -2726,6 +2728,16 @@ def _classify_trade(t) -> tuple:
     if t.exit_reason == "unfilled":
         score -= 2; reasons.append("Unfilled")
 
+    # Context-based scoring
+    if getattr(t, "with_trend", False):
+        score += 1; reasons.append("With trend")
+    elif getattr(t, "ema_position", ""):
+        score -= 1; reasons.append("Counter-trend")
+    if getattr(t, "confidence", 0) >= 0.75:
+        score += 1; reasons.append(f"High conf ({t.confidence:.0%})")
+    if getattr(t, "num_setups_on_bar", 1) >= 2:
+        score += 1; reasons.append(f"Confluence ({t.num_setups_on_bar} setups)")
+
     is_good_trade = score >= 1
     if is_good_trade and is_good_result:
         cat = "Good Trade, Good Result"
@@ -2826,6 +2838,9 @@ def render_review_trades():
     setup_data = defaultdict(lambda: {
         "trades": 0, "pnl": 0.0, "wins": 0, "r_sum": 0.0,
         "GTGR": 0, "GTBR": 0, "BTGR": 0, "BTBR": 0,
+        "with_trend": 0, "with_trend_wins": 0,
+        "counter_trend": 0, "counter_trend_wins": 0,
+        "high_conf": 0, "high_conf_wins": 0,
     })
 
     cat_short = {
@@ -2844,6 +2859,16 @@ def render_review_trades():
         if t.is_winner: d["wins"] += 1
         cat = trade_cats.get(id(t), "Bad Trade, Bad Result")
         d[cat_short.get(cat, "BTBR")] += 1
+        # Context tracking
+        if getattr(t, "with_trend", False):
+            d["with_trend"] += 1
+            if t.is_winner: d["with_trend_wins"] += 1
+        else:
+            d["counter_trend"] += 1
+            if t.is_winner: d["counter_trend_wins"] += 1
+        if getattr(t, "confidence", 0) >= 0.75:
+            d["high_conf"] += 1
+            if t.is_winner: d["high_conf_wins"] += 1
 
     # Build evaluation rows with verdict
     eval_rows = []
@@ -2864,6 +2889,11 @@ def render_review_trades():
         else:
             verdict = "AVOID"
 
+        wt = d["with_trend"]
+        wt_wr = d["with_trend_wins"] / wt * 100 if wt > 0 else 0
+        ct = d["counter_trend"]
+        ct_wr = d["counter_trend_wins"] / ct * 100 if ct > 0 else 0
+
         eval_rows.append({
             "Setup": name,
             "Trades": total,
@@ -2871,6 +2901,8 @@ def render_review_trades():
             "Expectancy": round(expectancy, 2),
             "Avg R": round(avg_r, 2),
             "P&L": round(d["pnl"], 2),
+            "W/Trend": f"{wt} ({wt_wr:.0f}%)" if wt > 0 else "0",
+            "Vs Trend": f"{ct} ({ct_wr:.0f}%)" if ct > 0 else "0",
             "GTGR": d["GTGR"],
             "GTBR": d["GTBR"],
             "BTGR": d["BTGR"],
@@ -2900,8 +2932,47 @@ def render_review_trades():
     # Legend
     st.caption("GTGR = Good Trade Good Result | GTBR = Good Trade Bad Result | "
                "BTGR = Bad Trade Good Result | BTBR = Bad Trade Bad Result")
+    st.caption("W/Trend = with-trend trades (win%) | Vs Trend = counter-trend trades (win%)")
     st.caption("Verdict: TAKE = positive expectancy + 50%+ good trades | "
                "MAYBE = positive expectancy OR 40%+ quality & wins | AVOID = negative expectancy")
+
+    # ── Context Breakdown ──
+    with st.expander("Context Breakdown (Day Type & Market Cycle)", expanded=False):
+        # Performance by Day Type
+        day_type_stats = defaultdict(lambda: {"trades": 0, "wins": 0, "pnl": 0.0})
+        cycle_stats = defaultdict(lambda: {"trades": 0, "wins": 0, "pnl": 0.0})
+        for t in trades:
+            dt = getattr(t, "day_type", "") or "Unknown"
+            mc = getattr(t, "market_cycle", "") or "Unknown"
+            day_type_stats[dt]["trades"] += 1
+            day_type_stats[dt]["pnl"] += t.pnl
+            if t.is_winner: day_type_stats[dt]["wins"] += 1
+            cycle_stats[mc]["trades"] += 1
+            cycle_stats[mc]["pnl"] += t.pnl
+            if t.is_winner: cycle_stats[mc]["wins"] += 1
+
+        ctx_col1, ctx_col2 = st.columns(2)
+        with ctx_col1:
+            st.markdown("**By Day Type**")
+            dt_rows = []
+            for dt, s in sorted(day_type_stats.items(), key=lambda x: x[1]["pnl"], reverse=True):
+                wr = s["wins"] / s["trades"] * 100 if s["trades"] > 0 else 0
+                exp = s["pnl"] / s["trades"] if s["trades"] > 0 else 0
+                dt_rows.append({"Day Type": dt, "Trades": s["trades"],
+                                "Win%": f"{wr:.0f}%", "Expectancy": round(exp, 2),
+                                "P&L": round(s["pnl"], 2)})
+            st.dataframe(pd.DataFrame(dt_rows), hide_index=True, use_container_width=True, key="rv_daytype")
+
+        with ctx_col2:
+            st.markdown("**By Market Cycle**")
+            mc_rows = []
+            for mc, s in sorted(cycle_stats.items(), key=lambda x: x[1]["pnl"], reverse=True):
+                wr = s["wins"] / s["trades"] * 100 if s["trades"] > 0 else 0
+                exp = s["pnl"] / s["trades"] if s["trades"] > 0 else 0
+                mc_rows.append({"Market Cycle": mc, "Trades": s["trades"],
+                                "Win%": f"{wr:.0f}%", "Expectancy": round(exp, 2),
+                                "P&L": round(s["pnl"], 2)})
+            st.dataframe(pd.DataFrame(mc_rows), hide_index=True, use_container_width=True, key="rv_mktcycle")
 
     # ═══════════════════════════════════════════════════════════════════
     #  SECTION 2: INDIVIDUAL TRADE REVIEW
@@ -2997,6 +3068,16 @@ def render_review_trades():
     d11.metric("MFE", f"${t.mfe:.2f}")
     d12.metric("Entry Time", t.entry_time[:16] if t.entry_time else "N/A")
 
+    # Context row
+    ctx1, ctx2, ctx3, ctx4, ctx5, ctx6 = st.columns(6)
+    ctx1.metric("Ticker", t.ticker or "N/A")
+    ctx2.metric("Day Type", t.day_type or "N/A")
+    ctx3.metric("Mkt Cycle", t.market_cycle or "N/A")
+    ctx4.metric("Confidence", f"{t.confidence:.0%}" if t.confidence else "N/A")
+    ctx5.metric("EMA Position", t.ema_position or "N/A")
+    trend_label = "With Trend" if t.with_trend else "Counter-Trend"
+    ctx6.metric("Trend Align", trend_label)
+
     # Chart
     source_df = None
     trade_ticker = getattr(t, "ticker", ticker)
@@ -3049,12 +3130,27 @@ def render_review_trades():
         tk = f"{t.entry_time}_{t.setup_name}_{t.direction}"
         export_rows.append({
             "Entry Time": t.entry_time,
+            "Ticker": t.ticker or "",
             "Setup": t.setup_name,
             "Direction": t.direction,
+            "Entry": round(t.entry_price, 2),
+            "Stop": round(t.stop_loss, 2),
+            "Exit": round(t.exit_price, 2),
             "P&L": round(t.pnl, 2),
             "R": round(t.r_multiple, 2),
             "Result": "Win" if t.is_winner else "Loss",
             "Exit Reason": t.exit_reason,
+            "Bars Held": t.bars_held,
+            "MAE": round(t.mae, 2),
+            "MFE": round(t.mfe, 2),
+            # Context
+            "Day Type": t.day_type or "",
+            "Market Cycle": t.market_cycle or "",
+            "Confidence": round(t.confidence, 2) if t.confidence else 0,
+            "EMA Position": t.ema_position or "",
+            "With Trend": "Yes" if t.with_trend else "No",
+            "Confluence": t.num_setups_on_bar,
+            # Classification
             "Category": classifications.get(tk, ""),
             "Notes": st.session_state.get("rv_notes", {}).get(f"rv_note_{tk}", ""),
         })

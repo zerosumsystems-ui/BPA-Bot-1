@@ -1056,6 +1056,7 @@ def analyze_bars(df: pd.DataFrame) -> dict:
             "risk": risk,
             "scalp_target": scalp,
             "swing_target": swing,
+            "num_setups_on_bar": len(bar_map.get(s.entry_bar, [s])),
         })
 
     return {

@@ -57,6 +57,16 @@ class Trade:
     mae_r: float = 0.0       # MAE as R-multiple
     mfe_r: float = 0.0       # MFE as R-multiple
 
+    # Context fields — filled during backtest for trade review
+    ticker: str = ""
+    day_type: str = ""           # e.g. "Trend Day", "Trading Range Day"
+    market_cycle: str = ""       # e.g. "Bull Trend", "Bear Pullback"
+    confidence: float = 0.0      # Setup confidence score (0-1)
+    ema_position: str = ""       # "Above EMA" or "Below EMA" at entry
+    with_trend: bool = False     # Was trade in direction of the trend?
+    gap_day: bool = False        # Was there a significant opening gap?
+    num_setups_on_bar: int = 1   # How many setups fired at same bar (confluence)
+
 
 # ─────────────────────────── RISK MANAGEMENT ─────────────────────────────────
 
@@ -304,6 +314,7 @@ def run_backtest(
     min_bars_between_trades: int = 3,
     slippage: float = 0.0,
     commission: float = 0.0,
+    ticker: str = "",
 ) -> dict:
     """
     Run a full backtest on a single day of 5-min OHLCV data.
@@ -367,6 +378,26 @@ def run_backtest(
         # Calculate Al Brooks levels from signal bar
         levels = calculate_al_brooks_levels(signal_bar, direction)
 
+        # Context: EMA position at entry
+        entry_close = bars[bar_idx].close
+        entry_ema = ema[bar_idx] if bar_idx < len(ema) else 0
+        ema_pos = "Above EMA" if entry_close > entry_ema else "Below EMA"
+
+        # Context: is this trade with-trend?
+        # Simple heuristic: Long above EMA = with trend, Short below EMA = with trend
+        with_trend = (direction == "Long" and entry_close > entry_ema) or \
+                     (direction == "Short" and entry_close < entry_ema)
+
+        # Context: gap day detection (compare bar 0 open to prior close if available)
+        gap_day = False
+        if len(bars) > 1:
+            gap = abs(bars[0].open - bars[0].close) / max(bars[0].close, 0.01)
+            # Check if first bar gapped significantly from its own range
+            first_bar_range = bars[0].high - bars[0].low
+            avg_range = sum(b.high - b.low for b in bars[:min(10, len(bars))]) / min(10, len(bars))
+            if first_bar_range > avg_range * 1.5:
+                gap_day = True
+
         trade = Trade(
             entry_bar=entry_bar_num,
             entry_price=levels["entry"],
@@ -378,6 +409,15 @@ def run_backtest(
             scalp_target=levels["scalp_target"],
             swing_target=levels["swing_target"],
             risk_per_share=levels["risk"],
+            # Context
+            day_type=analysis.get("day_type", ""),
+            market_cycle=analysis.get("market_cycle", ""),
+            confidence=setup.get("confidence", 0.0),
+            ema_position=ema_pos,
+            with_trend=with_trend,
+            gap_day=gap_day,
+            num_setups_on_bar=setup.get("num_setups_on_bar", 1),
+            ticker=ticker,
         )
 
         # Simulate the trade
@@ -403,6 +443,7 @@ def run_multi_day_backtest(
     min_bars_between_trades: int = 3,
     slippage: float = 0.0,
     commission: float = 0.0,
+    ticker: str = "",
 ) -> dict:
     """
     Run backtest across multiple days of data.
@@ -420,7 +461,7 @@ def run_multi_day_backtest(
     daily_results: list[dict] = []
 
     for date_str, df in sorted(daily_dataframes.items()):
-        result = run_backtest(df, mode, min_bars_between_trades, slippage, commission)
+        result = run_backtest(df, mode, min_bars_between_trades, slippage, commission, ticker=ticker)
         day_trades = result["trades"]
         all_trades.extend(day_trades)
         daily_results.append({
@@ -455,6 +496,7 @@ def run_daily_backtest(
     hold_limit: int = 20,
     slippage: float = 0.0,
     commission: float = 0.0,
+    ticker: str = "",
 ) -> dict:
     """
     Run a backtest on DAILY bars (one bar per trading day).
@@ -530,6 +572,13 @@ def run_daily_backtest(
 
         levels = calculate_al_brooks_levels(signal_bar, direction)
 
+        # Context: EMA position at entry
+        entry_close = bars[bar_idx].close
+        entry_ema = ema[bar_idx] if bar_idx < len(ema) else 0
+        ema_pos = "Above EMA" if entry_close > entry_ema else "Below EMA"
+        with_trend = (direction == "Long" and entry_close > entry_ema) or \
+                     (direction == "Short" and entry_close < entry_ema)
+
         trade = Trade(
             entry_bar=entry_bar_num,
             entry_price=levels["entry"],
@@ -541,6 +590,14 @@ def run_daily_backtest(
             scalp_target=levels["scalp_target"],
             swing_target=levels["swing_target"],
             risk_per_share=levels["risk"],
+            # Context
+            ticker=ticker,
+            day_type=analysis.get("day_type", ""),
+            market_cycle=analysis.get("market_cycle", ""),
+            confidence=setup.get("confidence", 0.0),
+            ema_position=ema_pos,
+            with_trend=with_trend,
+            num_setups_on_bar=setup.get("num_setups_on_bar", 1),
         )
 
         # Simulate — but with a hold limit instead of EOD close
