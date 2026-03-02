@@ -69,6 +69,16 @@ ENCYCLOPEDIA_PATH = BASE_DIR / "brooks_encyclopedia_learnings.md"
 TRAINING_CSV = DATA_DIR / "training_data.csv"
 DO_NOT_TRADE_JSON = DATA_DIR / "do_not_trade.json"
 
+# ── Preset ticker groups ──
+TICKER_PRESETS = {
+    "Custom": "",
+    "Mag 7": "AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA",
+    "Most Liquid": "SPY, QQQ, AAPL, MSFT, NVDA, AMZN, TSLA, META, AMD, GOOG",
+    "Index ETFs": "SPY, QQQ, IWM, DIA",
+    "Mega Cap Tech": "AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AVGO, ORCL, CRM",
+    "Semis": "NVDA, AMD, AVGO, QCOM, MU, INTC, TSM, MRVL, KLAC, LRCX",
+}
+
 CSV_COLUMNS = [
     "timestamp", "ticker",
     "bot_day_type", "bot_market_cycle",
@@ -2121,10 +2131,11 @@ def render_scanner():
     st.markdown("---")
 
     # ── Scanner Controls ──
+    sc_preset = st.selectbox("Group", list(TICKER_PRESETS.keys()), key="sc_preset")
     col1, col2 = st.columns([3, 1])
     with col1:
-        default_tickers = "AAPL, QQQ, TSLA, MSFT, NVDA, SPY"
-        ticker_input = st.text_input("Tickers (comma-separated):", value=default_tickers)
+        default_tickers = TICKER_PRESETS[sc_preset] if sc_preset != "Custom" else "AAPL, QQQ, TSLA, MSFT, NVDA, SPY"
+        ticker_input = st.text_input("Tickers", value=default_tickers, key="sc_tickers")
     with col2:
         scanner_days = st.number_input("Days Back", min_value=1, max_value=1825, value=5, key="scanner_days")
 
@@ -2301,18 +2312,22 @@ def render_backtest():
     """Backtesting tab with full report, equity curve, and trade log."""
     from backtester import run_backtest, run_multi_day_backtest, trades_to_dataframe
 
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    # Preset group selector
+    preset_names = list(TICKER_PRESETS.keys())
+    bt_preset = st.selectbox("Group", preset_names, key="bt_preset")
+
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        bt_ticker = st.text_input("Ticker", value="SPY", key="bt_ticker").upper().strip()
+        default_val = TICKER_PRESETS[bt_preset] if bt_preset != "Custom" else "SPY"
+        bt_tickers_raw = st.text_input("Tickers", value=default_val, key="bt_tickers_input").upper().strip()
     with col2:
         bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode",
-                                help="Scalp = 1:1 R/R target. Swing = 2:1 R/R target.")
+                                help="Scalp = 1:1 R/R. Swing = 2:1 R/R.")
     with col3:
-        bt_days = st.number_input("Trading Days", min_value=1, max_value=9999, value=30, key="bt_days",
-                                   help="Trading days to backtest. yFinance 5m data limited to ~60 calendar days. Databento supports longer ranges.")
-    with col4:
-        st.markdown("<br>", unsafe_allow_html=True)
-        run_btn = st.button("Run Backtest", key="bt_run", type="primary")
+        bt_days = st.number_input("Days", min_value=1, max_value=9999, value=30, key="bt_days",
+                                   help="Trading days. yFinance 5m limited to ~60 cal days.")
+
+    run_btn = st.button("Run Backtest", key="bt_run", type="primary", use_container_width=True)
 
     # Advanced settings
     with st.expander("Advanced Settings", expanded=False):
@@ -2324,81 +2339,121 @@ def render_backtest():
             bt_commission = st.number_input("Commission ($/share/side)", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="bt_commission",
                                              help="Commission per share per side (entry + exit)")
 
+    # Parse tickers
+    bt_ticker_list = [t.strip().upper() for t in bt_tickers_raw.split(",") if t.strip()]
+
     if run_btn:
-        with st.spinner(f"Backtesting {bt_ticker} over {bt_days} days ({bt_mode} mode)..."):
+        if not bt_ticker_list:
+            st.warning("Enter at least one ticker.")
+            return
+
+        with st.spinner(f"Backtesting {len(bt_ticker_list)} ticker(s) over {bt_days} days ({bt_mode} mode)..."):
             source = _init_data_source_v2()
             import datetime as _dt
             end = _dt.date.today()
             calendar_days = int(bt_days * 1.45) + 1
             start = end - _dt.timedelta(days=calendar_days)
-
             start_str = start.strftime("%Y-%m-%d")
             end_str = end.strftime("%Y-%m-%d")
 
-            # Warn about yFinance 60-day limit for 5m data
             if source.name() == "yFinance" and bt_days > 40:
-                st.warning("yFinance only provides ~60 calendar days of 5-min data. For longer periods, configure a Databento API key.")
+                st.warning("yFinance only provides ~60 calendar days of 5-min data.")
 
-            full_df = None
-            used_source = source.name()
-
-            try:
-                full_df = source.fetch_historical(bt_ticker, start_str, end_str)
-            except Exception as e:
-                st.warning(f"{source.name()} failed: {e}")
-
-            # Count how many trading days we got
             def _count_days(df):
                 if df is None or df.empty:
                     return 0
                 idx = pd.to_datetime(df.index)
                 return len(set(idx.date))
 
-            got_days = _count_days(full_df)
+            all_trades = []
+            all_daily_dfs = {}
+            ticker_summaries = []
+            progress_bar = st.progress(0)
 
-            # If primary source returned too few days for a multi-day backtest, try yFinance fallback
-            if got_days < max(2, bt_days // 2) and source.name() != "yFinance" and bt_days > 1:
-                st.caption(f"{source.name()} returned only {got_days} day(s). Trying yFinance fallback...")
+            for ti, bt_ticker in enumerate(bt_ticker_list):
+                progress_bar.progress(ti / len(bt_ticker_list), text=f"Backtesting {bt_ticker} ({ti+1}/{len(bt_ticker_list)})...")
+
+                full_df = None
+                used_source = source.name()
                 try:
-                    from data_source import YFinanceSource
-                    yf_source = YFinanceSource()
-                    yf_df = yf_source.fetch_historical(bt_ticker, start_str, end_str)
-                    yf_days = _count_days(yf_df)
-                    if yf_days > got_days:
-                        full_df = yf_df
-                        used_source = "yFinance"
-                        got_days = yf_days
-                except Exception as yf_err:
-                    st.caption(f"yFinance fallback also failed: {yf_err}")
+                    full_df = source.fetch_historical(bt_ticker, start_str, end_str)
+                except Exception as e:
+                    st.caption(f"{bt_ticker}: {source.name()} failed: {e}")
 
-            st.caption(f"Data: **{used_source}** | {start} → {end}")
+                got_days = _count_days(full_df)
 
-            if full_df is None or full_df.empty:
-                st.warning(f"No data for {bt_ticker}. Check your API key or try a different ticker/range.")
+                if got_days < max(2, bt_days // 2) and source.name() != "yFinance" and bt_days > 1:
+                    try:
+                        from data_source import YFinanceSource
+                        yf_source = YFinanceSource()
+                        yf_df = yf_source.fetch_historical(bt_ticker, start_str, end_str)
+                        yf_days = _count_days(yf_df)
+                        if yf_days > got_days:
+                            full_df = yf_df
+                            used_source = "yFinance"
+                            got_days = yf_days
+                    except Exception:
+                        pass
+
+                if full_df is None or full_df.empty:
+                    st.caption(f"{bt_ticker}: no data")
+                    continue
+
+                if isinstance(full_df.columns, pd.MultiIndex):
+                    full_df.columns = full_df.columns.get_level_values(0)
+
+                full_df.index = pd.to_datetime(full_df.index)
+                daily_dfs = {}
+                for date, group in full_df.groupby(full_df.index.date):
+                    if len(group) >= 10:
+                        daily_dfs[str(date)] = group
+
+                if not daily_dfs:
+                    st.caption(f"{bt_ticker}: not enough intraday data")
+                    continue
+
+                report = run_multi_day_backtest(daily_dfs, mode=bt_mode,
+                                               slippage=bt_slippage, commission=bt_commission,
+                                               ticker=bt_ticker)
+
+                for t in report["trades"]:
+                    t.ticker = bt_ticker
+                all_trades.extend(report["trades"])
+                all_daily_dfs.update(daily_dfs)
+
+                ts = report["summary"]
+                ticker_summaries.append({
+                    "Ticker": bt_ticker,
+                    "Trades": ts["total_trades"],
+                    "Win%": f"{ts['win_rate']:.0%}" if ts["total_trades"] > 0 else "N/A",
+                    "P&L": round(ts["total_pnl"], 2),
+                    "PF": round(ts["profit_factor"], 2) if ts["total_trades"] > 0 else 0.0,
+                })
+
+            progress_bar.empty()
+
+            if not all_trades:
+                st.warning("No trades generated across all tickers.")
                 return
 
-            if isinstance(full_df.columns, pd.MultiIndex):
-                full_df.columns = full_df.columns.get_level_values(0)
+            # Build combined report
+            from backtester import _compute_summary, _build_equity_curve
+            combined_summary = _compute_summary(all_trades, bt_mode)
+            combined_equity = _build_equity_curve(all_trades)
+            combined_report = {
+                "trades": all_trades,
+                "summary": combined_summary,
+                "equity_curve": combined_equity,
+            }
 
-            full_df.index = pd.to_datetime(full_df.index)
-            daily_dfs = {}
-            for date, group in full_df.groupby(full_df.index.date):
-                if len(group) >= 10:
-                    daily_dfs[str(date)] = group
+            st.session_state["bt_report"] = combined_report
+            st.session_state["bt_daily_dfs"] = all_daily_dfs
+            st.session_state["bt_ticker_used"] = ", ".join(bt_ticker_list)
 
-            if not daily_dfs:
-                st.warning("Not enough intraday data. Try a more recent date range.")
-                return
-
-            if len(daily_dfs) < bt_days:
-                st.caption(f"Got **{len(daily_dfs)}** trading days of data (requested {bt_days})")
-
-            report = run_multi_day_backtest(daily_dfs, mode=bt_mode,
-                                                   slippage=bt_slippage, commission=bt_commission,
-                                                   ticker=bt_ticker)
-            st.session_state["bt_report"] = report
-            st.session_state["bt_daily_dfs"] = daily_dfs
-            st.session_state["bt_ticker_used"] = bt_ticker
+            # Show per-ticker breakdown if multiple tickers
+            if len(ticker_summaries) > 1:
+                ts_df = pd.DataFrame(ticker_summaries).sort_values("P&L", ascending=False).reset_index(drop=True)
+                st.dataframe(ts_df, hide_index=True, use_container_width=True, key="bt_ticker_breakdown")
 
     report = st.session_state.get("bt_report")
     if not report:
@@ -2497,26 +2552,30 @@ def render_backtest_daily():
     """Daily-chart backtesting — uses daily bars so yFinance can go back years."""
     from backtester import run_daily_backtest, trades_to_dataframe
 
-    col1, col2, col3 = st.columns([3, 1, 1])
+    # Preset group selector
+    preset_names = list(TICKER_PRESETS.keys())
+    dt_preset = st.selectbox("Group", preset_names, key="dt_preset")
+
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        dt_tickers_raw = st.text_input("Tickers (comma-separated)", value="SPY, QQQ, AAPL", key="dt_tickers")
+        default_val = TICKER_PRESETS[dt_preset] if dt_preset != "Custom" else "SPY, QQQ, AAPL"
+        dt_tickers_raw = st.text_input("Tickers", value=default_val, key="dt_tickers")
     with col2:
         dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode",
-                                help="Swing = 2:1 R/R target (default for daily). Scalp = 1:1 R/R.")
+                                help="Swing = 2:1 R/R. Scalp = 1:1 R/R.")
     with col3:
         dt_years = st.selectbox("Period", ["2y", "5y", "10y", "20y", "max", "1y"], key="dt_period",
-                                 help="How far back to test. Daily bars from yFinance.")
+                                 help="How far back to test.")
 
-    col4, col5, col6 = st.columns([1, 1, 1])
+    col4, col5 = st.columns(2)
     with col4:
-        dt_hold = st.number_input("Max Hold (days)", min_value=2, max_value=500, value=15, key="dt_hold",
-                                   help="Max trading days to hold before forced exit")
+        dt_hold = st.number_input("Max Hold", min_value=2, max_value=500, value=15, key="dt_hold",
+                                   help="Max days to hold")
     with col5:
-        dt_gap = st.number_input("Min Gap Between Trades", min_value=0, max_value=20, value=3, key="dt_gap",
-                                  help="Min bars after exit before entering next trade")
-    with col6:
-        st.markdown("<br>", unsafe_allow_html=True)
-        run_btn = st.button("Run Backtest", key="dt_run", type="primary")
+        dt_gap = st.number_input("Min Gap", min_value=0, max_value=20, value=3, key="dt_gap",
+                                  help="Min bars between trades")
+
+    run_btn = st.button("Run Backtest", key="dt_run", type="primary", use_container_width=True)
 
     # Advanced settings
     with st.expander("Advanced Settings", expanded=False):
