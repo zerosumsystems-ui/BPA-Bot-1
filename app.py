@@ -27,11 +27,36 @@ from google import genai
 # ─────────────────────────── CONFIG ──────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Trading Bot Trainer",
+    page_title="BPA Bot | Al Brooks Price Action",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Professional Styling ──
+st.markdown("""
+<style>
+    /* Clean tab styling */
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] {
+        padding: 8px 20px;
+        font-weight: 500;
+    }
+    /* Compact metrics */
+    [data-testid="stMetric"] {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 10px 12px;
+        border: 1px solid #e9ecef;
+    }
+    [data-testid="stMetric"] label { font-size: 0.75rem; color: #6c757d; }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] { font-size: 1.1rem; }
+    /* Cleaner expanders */
+    .streamlit-expanderHeader { font-weight: 600; font-size: 0.9rem; }
+    /* Sidebar cleanup */
+    section[data-testid="stSidebar"] { background: #fafafa; }
+</style>
+""", unsafe_allow_html=True)
 
 # Use DATA_DIR env var for persistent storage (Render Disk mount)
 # Locally defaults to "." so nothing changes for local dev
@@ -1620,11 +1645,8 @@ def check_prefetch():
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("## Trading Bot Trainer")
-        st.markdown("---")
-        count = len(load_training_csv())
-        st.metric("Charts Corrected", f"{count} / 100")
-        st.progress(min(count / 100, 1.0))
+        st.markdown("## BPA Bot")
+        st.caption("Al Brooks Price Action Analysis")
         st.markdown("---")
 
         # Analysis mode toggle
@@ -1637,12 +1659,13 @@ def render_sidebar():
         st.session_state["analysis_mode"] = analysis_mode
         st.markdown("---")
 
-        st.markdown(
-            "Train a Gemini-powered bot on **Al Brooks' Price Action** by correcting its guesses."
-        )
+        count = len(load_training_csv())
+        st.metric("Training Progress", f"{count} / 100")
+        st.progress(min(count / 100, 1.0))
         st.markdown("---")
+
         source = _init_data_source_v2()
-        st.caption(f"Built with Streamlit · Gemini · {source.name()}")
+        st.caption(f"Data: {source.name()}")
         
         # ── Ask the Bot (Teacher Workflow) ──
         st.markdown("---")
@@ -2315,7 +2338,7 @@ def render_backtest():
 
     report = st.session_state.get("bt_report")
     if not report:
-        st.info("Configure settings and press **Run Backtest**. Uses 5-min intraday bars with EOD forced close.")
+        st.info("Set parameters above and press **Run Backtest** to begin.")
         return
 
     s = report["summary"]
@@ -2527,7 +2550,7 @@ def render_backtest_daily():
 
     report = st.session_state.get("dt_report")
     if not report:
-        st.info("Configure settings and press **Run Backtest**. Uses daily bars from yFinance -- can test years of data.")
+        st.info("Set parameters above and press **Run Backtest** to begin.")
         return
 
     s = report["summary"]
@@ -2613,11 +2636,245 @@ def render_backtest_daily():
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
 
+def render_review_trades():
+    """Review Trades tab — step through trades one by one with chart + details."""
+    # Pick which backtest results to review
+    has_5m = st.session_state.get("bt_report") is not None
+    has_daily = st.session_state.get("dt_report") is not None
+
+    if not has_5m and not has_daily:
+        st.info("Run a backtest first (Backtest 5m or Backtest Daily), then come here to review trades one by one.")
+        return
+
+    sources = []
+    if has_5m:
+        sources.append("Backtest 5m")
+    if has_daily:
+        sources.append("Backtest Daily")
+
+    source = st.radio("Review trades from:", sources, horizontal=True, key="rv_source")
+    st.markdown("---")
+
+    if source == "Backtest 5m":
+        report = st.session_state["bt_report"]
+        daily_dfs = st.session_state.get("bt_daily_dfs", {})
+        ticker = st.session_state.get("bt_ticker_used", "SPY")
+        is_daily = False
+    else:
+        report = st.session_state["dt_report"]
+        daily_dfs = {}
+        ticker = st.session_state.get("dt_ticker_used", "SPY")
+        is_daily = True
+
+    trades = report["trades"]
+    if not trades:
+        st.warning("No trades in this backtest.")
+        return
+
+    # Filter controls
+    fc1, fc2, fc3 = st.columns([2, 1, 1])
+    with fc1:
+        setup_names = sorted(set(t.setup_name for t in trades))
+        rv_setup_filter = st.multiselect("Filter by Setup", setup_names, default=[], key="rv_setup_filter")
+    with fc2:
+        rv_outcome = st.selectbox("Outcome", ["All", "Winners", "Losers"], key="rv_outcome")
+    with fc3:
+        rv_direction = st.selectbox("Direction", ["All", "Long", "Short"], key="rv_direction")
+
+    filtered_trades = trades
+    if rv_setup_filter:
+        filtered_trades = [t for t in filtered_trades if t.setup_name in rv_setup_filter]
+    if rv_outcome == "Winners":
+        filtered_trades = [t for t in filtered_trades if t.is_winner]
+    elif rv_outcome == "Losers":
+        filtered_trades = [t for t in filtered_trades if not t.is_winner]
+    if rv_direction != "All":
+        filtered_trades = [t for t in filtered_trades if t.direction == rv_direction]
+
+    if not filtered_trades:
+        st.warning("No trades match filters.")
+        return
+
+    st.caption(f"Reviewing {len(filtered_trades)} of {len(trades)} trades")
+
+    # Navigation
+    if "rv_idx" not in st.session_state:
+        st.session_state["rv_idx"] = 0
+
+    max_idx = len(filtered_trades) - 1
+    nav1, nav2, nav3, nav4, nav5 = st.columns([1, 1, 3, 1, 1])
+    with nav1:
+        if st.button("First", key="rv_first", use_container_width=True):
+            st.session_state["rv_idx"] = 0
+    with nav2:
+        if st.button("Prev", key="rv_prev", use_container_width=True):
+            st.session_state["rv_idx"] = max(0, st.session_state["rv_idx"] - 1)
+    with nav3:
+        rv_idx = st.slider("Trade", 0, max_idx, st.session_state["rv_idx"], key="rv_slider")
+        st.session_state["rv_idx"] = rv_idx
+    with nav4:
+        if st.button("Next", key="rv_next", use_container_width=True):
+            st.session_state["rv_idx"] = min(max_idx, st.session_state["rv_idx"] + 1)
+    with nav5:
+        if st.button("Last", key="rv_last", use_container_width=True):
+            st.session_state["rv_idx"] = max_idx
+
+    idx = st.session_state["rv_idx"]
+    t = filtered_trades[idx]
+
+    # Trade details
+    st.markdown("---")
+    outcome_color = "#00C853" if t.is_winner else "#FF1744"
+    outcome_text = "WIN" if t.is_winner else "LOSS"
+
+    st.markdown(f"### Trade {idx + 1} of {len(filtered_trades)} — {t.setup_name} ({t.direction})")
+
+    d1, d2, d3, d4, d5, d6 = st.columns(6)
+    d1.metric("P&L", f"${t.pnl:+.2f}/sh")
+    d2.metric("R-Multiple", f"{t.r_multiple:+.2f}R")
+    d3.metric("Entry", f"${t.entry_price:.2f}")
+    d4.metric("Exit", f"${t.exit_price:.2f}")
+    d5.metric("Stop", f"${t.stop_loss:.2f}")
+    d6.metric("Result", outcome_text)
+
+    d7, d8, d9, d10, d11, d12 = st.columns(6)
+    d7.metric("Order Type", t.order_type)
+    d8.metric("Exit Reason", t.exit_reason.replace("_", " ").title())
+    d9.metric("Bars Held", t.bars_held)
+    d10.metric("MAE", f"${t.mae:.2f}")
+    d11.metric("MFE", f"${t.mfe:.2f}")
+    d12.metric("Entry Time", t.entry_time[:16] if t.entry_time else "N/A")
+
+    # Chart
+    source_df = None
+    trade_ticker = getattr(t, "ticker", ticker)
+
+    if is_daily:
+        source_df = st.session_state.get("dt_source_df")
+    else:
+        # For 5m, find the day's data
+        if t.entry_time and len(t.entry_time) >= 10:
+            day_key = t.entry_time[:10]
+            source_df = daily_dfs.get(day_key)
+
+    if source_df is not None and not source_df.empty:
+        fig = build_trade_chart(source_df, t, trade_ticker, is_daily=is_daily)
+        st.plotly_chart(fig, use_container_width=True, key=f"rv_chart_{idx}")
+    else:
+        st.caption("Chart data not available for this trade.")
+
+    # ── Trade Classification ──
+    st.markdown("---")
+    st.markdown("**Trade Quality Classification**")
+    trade_key = f"{t.entry_time}_{t.setup_name}_{t.direction}"
+    if "rv_classifications" not in st.session_state:
+        st.session_state["rv_classifications"] = {}
+
+    # Auto-classify based on setup quality heuristics
+    # Good trade indicators: strong R exit, good risk/reward, reasonable bars held
+    is_good_result = t.pnl > 0
+
+    # Setup quality heuristics
+    quality_score = 0
+    quality_reasons = []
+    # Positive: hit target (not just EOD/hold close)
+    if t.exit_reason in ("scalp_target", "swing_target"):
+        quality_score += 2
+        quality_reasons.append("Hit target")
+    # Positive: favorable MFE vs MAE (market moved in your favor more than against)
+    if t.mfe > 0 and t.mae > 0 and t.mfe > t.mae:
+        quality_score += 1
+        quality_reasons.append(f"MFE > MAE ({t.mfe:.2f} > {t.mae:.2f})")
+    # Positive: good R-multiple
+    if t.r_multiple >= 1.0:
+        quality_score += 1
+        quality_reasons.append(f"R >= 1.0 ({t.r_multiple:.2f}R)")
+    # Negative: stopped out immediately (held < 2 bars)
+    if t.exit_reason == "stop_loss" and t.bars_held <= 2:
+        quality_score -= 2
+        quality_reasons.append("Immediate stop (held <3 bars)")
+    # Negative: EOD close with loss
+    if t.exit_reason in ("eod_close", "hold_limit") and t.pnl < 0:
+        quality_score -= 1
+        quality_reasons.append("Held to close/limit at a loss")
+    # Negative: MFE was much better than exit (left money on table)
+    if t.mfe > 0 and t.pnl > 0 and t.mfe > t.pnl * 2:
+        quality_reasons.append(f"Left profit on table (MFE ${t.mfe:.2f} vs P&L ${t.pnl:.2f})")
+    # Negative: unfilled limit order
+    if t.exit_reason == "unfilled":
+        quality_score -= 2
+        quality_reasons.append("Limit order never filled")
+
+    is_good_trade = quality_score >= 1
+
+    auto_category = ""
+    if is_good_trade and is_good_result:
+        auto_category = "Good Trade, Good Result"
+    elif is_good_trade and not is_good_result:
+        auto_category = "Good Trade, Bad Result"
+    elif not is_good_trade and is_good_result:
+        auto_category = "Bad Trade, Good Result"
+    else:
+        auto_category = "Bad Trade, Bad Result"
+
+    categories = ["Good Trade, Good Result", "Good Trade, Bad Result",
+                   "Bad Trade, Good Result", "Bad Trade, Bad Result"]
+
+    saved_cat = st.session_state["rv_classifications"].get(trade_key)
+    default_idx = categories.index(saved_cat) if saved_cat in categories else categories.index(auto_category)
+
+    cat1, cat2 = st.columns([2, 3])
+    with cat1:
+        selected_cat = st.selectbox("Classification", categories, index=default_idx,
+                                     key=f"rv_cat_{idx}", help="Auto-classified based on heuristics. Override if you disagree.")
+        st.session_state["rv_classifications"][trade_key] = selected_cat
+    with cat2:
+        if quality_reasons:
+            st.caption("Auto-classification reasoning: " + " | ".join(quality_reasons))
+
+    # Color indicator
+    cat_colors = {
+        "Good Trade, Good Result": "#00C853",
+        "Good Trade, Bad Result": "#FF9800",
+        "Bad Trade, Good Result": "#FF9800",
+        "Bad Trade, Bad Result": "#FF1744",
+    }
+    cat_color = cat_colors.get(selected_cat, "#999")
+    st.markdown(f'<div style="background:{cat_color};color:white;padding:6px 12px;border-radius:6px;'
+                f'font-weight:600;display:inline-block;margin:4px 0;">{selected_cat}</div>',
+                unsafe_allow_html=True)
+
+    # Classification summary across all reviewed trades
+    all_cats = st.session_state["rv_classifications"]
+    if len(all_cats) >= 2:
+        with st.expander("Classification Summary", expanded=False):
+            from collections import Counter
+            counts = Counter(all_cats.values())
+            total_classified = sum(counts.values())
+            sum_rows = []
+            for cat in categories:
+                c = counts.get(cat, 0)
+                pct = c / total_classified * 100 if total_classified > 0 else 0
+                sum_rows.append({"Category": cat, "Count": c, "%": f"{pct:.0f}%"})
+            st.dataframe(pd.DataFrame(sum_rows), width="stretch", hide_index=True, key="rv_cat_summary")
+
+    # Trade notes
+    st.markdown("---")
+    if "rv_notes" not in st.session_state:
+        st.session_state["rv_notes"] = {}
+    note_key = f"rv_note_{trade_key}"
+    existing_note = st.session_state["rv_notes"].get(note_key, "")
+    note = st.text_area("Your notes on this trade:", value=existing_note, key=f"rv_note_input_{idx}",
+                         placeholder="What would Al Brooks say about this setup? Was the context right?")
+    if note != existing_note:
+        st.session_state["rv_notes"][note_key] = note
+
+
 def main():
     render_sidebar()
 
-    tab_train, tab_backtest, tab_daily, tab_scanner, tab_library = st.tabs(
-        ["Training Lab", "Backtest 5m", "Backtest Daily", "Scanner", "Library"]
+    tab_train, tab_backtest, tab_daily, tab_review, tab_scanner, tab_library = st.tabs(
+        ["Training Lab", "Backtest 5m", "Backtest Daily", "Review Trades", "Scanner", "Library"]
     )
 
     with tab_train:
@@ -2628,6 +2885,9 @@ def main():
 
     with tab_daily:
         render_backtest_daily()
+
+    with tab_review:
+        render_review_trades()
 
     with tab_scanner:
         render_scanner()
