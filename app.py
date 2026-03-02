@@ -2316,14 +2316,11 @@ def render_backtest():
     preset_names = list(TICKER_PRESETS.keys())
     bt_preset = st.selectbox("Group", preset_names, key="bt_preset")
 
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2 = st.columns([2, 1])
     with col1:
         default_val = TICKER_PRESETS[bt_preset] if bt_preset != "Custom" else "SPY"
         bt_tickers_raw = st.text_input("Tickers", value=default_val, key="bt_tickers_input").upper().strip()
     with col2:
-        bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode",
-                                help="Scalp = 1:1 R/R. Swing = 2:1 R/R.")
-    with col3:
         bt_days = st.number_input("Days", min_value=1, max_value=9999, value=30, key="bt_days",
                                    help="Trading days. yFinance 5m limited to ~60 cal days.")
 
@@ -2331,13 +2328,16 @@ def render_backtest():
 
     # Advanced settings
     with st.expander("Advanced Settings", expanded=False):
-        ac1, ac2 = st.columns(2)
+        ac1, ac2, ac3 = st.columns(3)
         with ac1:
-            bt_slippage = st.number_input("Slippage ($/share)", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="bt_slippage",
-                                           help="Simulated slippage per fill (applied to entry and exit)")
+            bt_mode = st.selectbox("Mode", ["scalp", "swing"], key="bt_mode",
+                                    help="Scalp = 1:1 R/R. Swing = 2:1 R/R.")
         with ac2:
-            bt_commission = st.number_input("Commission ($/share/side)", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="bt_commission",
-                                             help="Commission per share per side (entry + exit)")
+            bt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="bt_slippage",
+                                           help="$/share per fill")
+        with ac3:
+            bt_commission = st.number_input("Commission", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="bt_commission",
+                                             help="$/share/side")
 
     # Parse tickers
     bt_ticker_list = [t.strip().upper() for t in bt_tickers_raw.split(",") if t.strip()]
@@ -2460,16 +2460,54 @@ def render_backtest():
         st.info("Set parameters above and press **Run Backtest** to begin.")
         return
 
-    s = report["summary"]
-    trades = report["trades"]
+    all_trades = report["trades"]
 
-    if s["total_trades"] == 0:
+    if not all_trades:
         st.warning("No trades generated. The algo didn't find setups in this data.")
         return
 
-    # ── Summary metrics ──
+    # ── Post-run filters ──
     st.markdown("---")
-    curve_df = pd.DataFrame(report["equity_curve"])
+    setup_names_all = sorted(set(_normalize_setup_name(t.setup_name) for t in all_trades))
+    bt_setup_filter = st.multiselect("Setup", setup_names_all, default=[], key="bt_setup_filter")
+
+    bf1, bf2, bf3 = st.columns(3)
+    with bf1:
+        bt_dir_filter = st.selectbox("Dir", ["All", "Long", "Short"], key="bt_dir_filter")
+    with bf2:
+        bt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="bt_trend_filter")
+    with bf3:
+        day_types_all = sorted(set(getattr(t, "day_type", "") or "Unknown" for t in all_trades))
+        bt_daytype_filter = st.selectbox("Day Type", ["All"] + day_types_all, key="bt_daytype_filter")
+
+    # Apply filters
+    trades = all_trades
+    if bt_setup_filter:
+        trades = [t for t in trades if _normalize_setup_name(t.setup_name) in bt_setup_filter]
+    if bt_dir_filter != "All":
+        trades = [t for t in trades if t.direction == bt_dir_filter]
+    if bt_trend_filter == "With Trend":
+        trades = [t for t in trades if getattr(t, "with_trend", False)]
+    elif bt_trend_filter == "Counter":
+        trades = [t for t in trades if not getattr(t, "with_trend", True)]
+    if bt_daytype_filter != "All":
+        trades = [t for t in trades if (getattr(t, "day_type", "") or "Unknown") == bt_daytype_filter]
+
+    if not trades:
+        st.warning("No trades match filters.")
+        return
+
+    is_filtered = len(trades) != len(all_trades)
+    if is_filtered:
+        st.caption(f"Showing {len(trades)} of {len(all_trades)} trades")
+
+    # Recompute stats on filtered trades
+    from backtester import _compute_summary, _build_equity_curve
+    s = _compute_summary(trades, st.session_state.get("bt_mode", "scalp"))
+    filtered_curve = _build_equity_curve(trades)
+
+    # ── Summary metrics ──
+    curve_df = pd.DataFrame(filtered_curve)
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
     total_return = ((final_equity - 10000) / 10000) * 100
 
@@ -2556,36 +2594,35 @@ def render_backtest_daily():
     preset_names = list(TICKER_PRESETS.keys())
     dt_preset = st.selectbox("Group", preset_names, key="dt_preset")
 
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2 = st.columns([2, 1])
     with col1:
         default_val = TICKER_PRESETS[dt_preset] if dt_preset != "Custom" else "SPY, QQQ, AAPL"
         dt_tickers_raw = st.text_input("Tickers", value=default_val, key="dt_tickers")
     with col2:
-        dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode",
-                                help="Swing = 2:1 R/R. Scalp = 1:1 R/R.")
-    with col3:
         dt_years = st.selectbox("Period", ["2y", "5y", "10y", "20y", "max", "1y"], key="dt_period",
                                  help="How far back to test.")
-
-    col4, col5 = st.columns(2)
-    with col4:
-        dt_hold = st.number_input("Max Hold", min_value=2, max_value=500, value=15, key="dt_hold",
-                                   help="Max days to hold")
-    with col5:
-        dt_gap = st.number_input("Min Gap", min_value=0, max_value=20, value=3, key="dt_gap",
-                                  help="Min bars between trades")
 
     run_btn = st.button("Run Backtest", key="dt_run", type="primary", use_container_width=True)
 
     # Advanced settings
     with st.expander("Advanced Settings", expanded=False):
-        dc1, dc2 = st.columns(2)
+        dc1, dc2, dc3 = st.columns(3)
         with dc1:
-            dt_slippage = st.number_input("Slippage ($/share)", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="dt_slippage",
-                                           help="Simulated slippage per fill")
+            dt_mode = st.selectbox("Mode", ["swing", "scalp"], key="dt_mode",
+                                    help="Swing = 2:1. Scalp = 1:1.")
         with dc2:
-            dt_commission = st.number_input("Commission ($/share/side)", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="dt_commission",
-                                             help="Commission per share per side")
+            dt_hold = st.number_input("Max Hold", min_value=2, max_value=500, value=15, key="dt_hold",
+                                       help="Max days to hold")
+        with dc3:
+            dt_gap = st.number_input("Min Gap", min_value=0, max_value=20, value=3, key="dt_gap",
+                                      help="Min bars between trades")
+        dc4, dc5 = st.columns(2)
+        with dc4:
+            dt_slippage = st.number_input("Slippage", min_value=0.0, max_value=1.0, value=0.0, step=0.01, key="dt_slippage",
+                                           help="$/share per fill")
+        with dc5:
+            dt_commission = st.number_input("Commission", min_value=0.0, max_value=0.5, value=0.0, step=0.005, key="dt_commission",
+                                             help="$/share/side")
 
     # Parse tickers
     dt_ticker_list = [t.strip().upper() for t in dt_tickers_raw.split(",") if t.strip()]
@@ -2681,10 +2718,9 @@ def render_backtest_daily():
         st.info("Set parameters above and press **Run Backtest** to begin.")
         return
 
-    s = report["summary"]
-    trades = report["trades"]
+    all_trades = report["trades"]
 
-    if s["total_trades"] == 0:
+    if not all_trades:
         st.warning("No trades generated. The algo didn't find setups in this data.")
         return
 
@@ -2695,9 +2731,48 @@ def render_backtest_daily():
         ts_df = pd.DataFrame(ticker_summaries).sort_values("P&L", ascending=False).reset_index(drop=True)
         st.dataframe(ts_df, width="stretch", hide_index=True, key="dt_ticker_breakdown")
 
-    # ── Combined summary metrics ──
+    # ── Post-run filters ──
     st.markdown("---")
-    curve_df = pd.DataFrame(report["equity_curve"])
+    dt_setup_names_all = sorted(set(_normalize_setup_name(t.setup_name) for t in all_trades))
+    dt_setup_filter = st.multiselect("Setup", dt_setup_names_all, default=[], key="dt_setup_filter")
+
+    df1, df2, df3 = st.columns(3)
+    with df1:
+        dt_dir_filter = st.selectbox("Dir", ["All", "Long", "Short"], key="dt_dir_filter")
+    with df2:
+        dt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="dt_trend_filter")
+    with df3:
+        dt_day_types_all = sorted(set(getattr(t, "day_type", "") or "Unknown" for t in all_trades))
+        dt_daytype_filter = st.selectbox("Day Type", ["All"] + dt_day_types_all, key="dt_daytype_filter")
+
+    # Apply filters
+    trades = all_trades
+    if dt_setup_filter:
+        trades = [t for t in trades if _normalize_setup_name(t.setup_name) in dt_setup_filter]
+    if dt_dir_filter != "All":
+        trades = [t for t in trades if t.direction == dt_dir_filter]
+    if dt_trend_filter == "With Trend":
+        trades = [t for t in trades if getattr(t, "with_trend", False)]
+    elif dt_trend_filter == "Counter":
+        trades = [t for t in trades if not getattr(t, "with_trend", True)]
+    if dt_daytype_filter != "All":
+        trades = [t for t in trades if (getattr(t, "day_type", "") or "Unknown") == dt_daytype_filter]
+
+    if not trades:
+        st.warning("No trades match filters.")
+        return
+
+    is_filtered = len(trades) != len(all_trades)
+    if is_filtered:
+        st.caption(f"Showing {len(trades)} of {len(all_trades)} trades")
+
+    # Recompute stats on filtered trades
+    from backtester import _compute_summary, _build_equity_curve
+    s = _compute_summary(trades, st.session_state.get("dt_mode", "swing"))
+    filtered_curve = _build_equity_curve(trades)
+
+    # ── Combined summary metrics ──
+    curve_df = pd.DataFrame(filtered_curve)
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
     total_return = ((final_equity - 10000) / 10000) * 100
 
