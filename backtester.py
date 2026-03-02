@@ -68,6 +68,26 @@ class Trade:
     num_setups_on_bar: int = 1   # How many setups fired at same bar (confluence)
 
 
+# ─────────────────────────── FADE SETUPS ─────────────────────────────────────
+# Setups whose original direction is wrong 80%+ of the time at 1:1 R/R.
+# The backtester flips these to trade the opposite direction and prefixes
+# the name with "Fade " so they are clearly identifiable.
+FADE_SETUPS = {
+    "Lower Low Double Bottom",
+    "Higher High Double Top",
+    "Consecutive Buy Climaxes (Reversal)",
+    "Consecutive Sell Climaxes (Reversal)",
+    "Exhaustive Bear Climax at MM",
+    "Exhaustive Bull Climax at MM",
+    "Weak Bull Breakout Test",
+    "Weak Bear Breakout Test",
+    "Bull Breakout Pullback",
+    "Quiet Bear Flag at MA",
+    "Quiet Bull Flag at MA",
+    "Bear Stairs Reversal (3rd/4th Push)",
+}
+
+
 # ─────────────────────────── RISK MANAGEMENT ─────────────────────────────────
 
 def calculate_al_brooks_levels(
@@ -383,6 +403,11 @@ def run_backtest(
         else:
             continue  # No directional keywords at all — skip
 
+        # Fade logic: flip direction on setups that are reliably wrong
+        if name in FADE_SETUPS:
+            direction = "Short" if direction == "Long" else "Long"
+            name = f"Fade {name}"
+
         # Calculate Al Brooks levels from signal bar
         levels = calculate_al_brooks_levels(signal_bar, direction)
 
@@ -585,6 +610,11 @@ def run_daily_backtest(
             direction = "Long" if bars[actual_bar_idx].close > ema[actual_bar_idx] else "Short"
         else:
             continue
+
+        # Fade logic: flip direction on setups that are reliably wrong
+        if name in FADE_SETUPS:
+            direction = "Short" if direction == "Long" else "Long"
+            name = f"Fade {name}"
 
         levels = calculate_al_brooks_levels(signal_bar, direction)
 
