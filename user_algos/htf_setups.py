@@ -48,7 +48,10 @@ def detect_htf_ema_opening_reversals(bars: List[Bar], ema: List[float]) -> List[
         # 2. Approximate 60-min EMA on a 5-min chart 
         # A standard 20-EMA on a 60-min chart is roughly a 240-EMA on a 5-min chart (20 * 12)
         # We will calculate a pseudo 240-period SMA/EMA for this check
-        past_240 = bars[i-240:i]
+        start = max(0, i - 240)
+        past_240 = bars[start:i]
+        if not past_240:
+            continue
         pseudo_htf_ema = sum(b.close for b in past_240) / len(past_240)
         
         # 3. Test & Reversal

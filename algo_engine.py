@@ -891,10 +891,10 @@ def analyze_bars(df: pd.DataFrame) -> dict:
     # Apply Contextual Filtration
     all_setups = filter_by_context(all_setups, day_type, market_cycle)
 
-    # --- CONFLUENCE ENGINE: Combine truly distinct setup families ---
-    # Only merge when 3+ distinct families fire at the same entry bar.
-    # Two variants of the same family (e.g. "High 1 Bull Flag" and
-    # "Custom High 1 Bull Flag") don't count as distinct.
+    # --- CONFLUENCE SCORING (no renaming) ---
+    # When multiple distinct pattern families fire at the same entry bar,
+    # boost the best setup's confidence — but KEEP its original name so
+    # backtester results stay attributable to individual setups.
 
     _FAMILY_KEYWORDS = [
         "Flag", "Double Bottom", "Double Top", "Wedge", "Breakout",
@@ -910,38 +910,33 @@ def analyze_bars(df: pd.DataFrame) -> dict:
         for kw in _FAMILY_KEYWORDS:
             if kw.lower() in name.lower():
                 return kw
-        return name  # fallback: the name itself is the family
+        return name
 
-    confluence_map: dict[int, list[Setup]] = {}
+    # Group by entry bar to detect stacking
+    bar_map: dict[int, list[Setup]] = {}
     for s in all_setups:
-        eb = s.entry_bar
-        if eb not in confluence_map:
-            confluence_map[eb] = []
-        confluence_map[eb].append(s)
+        bar_map.setdefault(s.entry_bar, []).append(s)
 
-    combined_setups: list[Setup] = []
-    for eb, setups_at_bar in confluence_map.items():
-        # Count distinct families at this bar
-        families = set(_setup_family(s.setup_name) for s in setups_at_bar)
+    # At each bar, keep only the BEST setup per family.
+    # If multiple families agree, give a small confidence boost.
+    deduped: list[Setup] = []
+    for eb, setups_at_bar in bar_map.items():
+        # Pick best setup per family
+        best_per_family: dict[str, Setup] = {}
+        for s in setups_at_bar:
+            fam = _setup_family(s.setup_name)
+            if fam not in best_per_family or s.confidence > best_per_family[fam].confidence:
+                best_per_family[fam] = s
 
-        if len(families) >= 3:
-            # True confluence: 3+ distinct pattern families
-            sorted_setups = sorted(setups_at_bar, key=lambda x: x.confidence, reverse=True)
-            base = sorted_setups[0]
-            names = sorted(list(set(s.setup_name.replace("Confluence: ", "") for s in sorted_setups)))
-            base.setup_name = "Confluence: " + " + ".join(names)
-            base.confidence = min(0.95, base.confidence + len(families) * 0.03)
-            base.notes = f"Confluence of {len(families)} distinct pattern families."
-            combined_setups.append(base)
-        else:
-            # Not enough distinct families — keep each setup individually
-            # but give a small confidence boost if 2 families agree
-            for s in setups_at_bar:
-                if len(families) == 2 and len(setups_at_bar) >= 2:
-                    s.confidence = min(0.95, s.confidence + 0.02)
-                combined_setups.append(s)
+        n_families = len(best_per_family)
+        for s in best_per_family.values():
+            # Confluence bonus: small boost per additional family
+            if n_families >= 2:
+                s.confidence = min(0.95, s.confidence + (n_families - 1) * 0.02)
+                s.notes = (s.notes or "") + f" [+{n_families} family confluence]"
+            deduped.append(s)
 
-    all_setups = combined_setups
+    all_setups = deduped
 
     # Sort by confidence, take all valid filtered setups
     all_setups.sort(key=lambda s: s.confidence, reverse=True)
