@@ -576,23 +576,19 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
         expectancy = s["avg_pnl"]  # avg P&L per trade = expectancy
         rows.append({
             "Setup": name,
-            "Trades": s["count"],
-            "W": s["wins"],
-            "L": s["losses"],
-            "Win %": f"{s['win_rate']:.0%}",
+            "N": s["count"],
+            "Win%": f"{s['win_rate']:.0%}",
             "P&L": round(s["pnl"], 2),
-            "Expectancy": round(expectancy, 2),
+            "Exp": round(expectancy, 2),
             "Avg R": round(s["avg_r"], 2),
             "PF": round(s["profit_factor"], 2) if s["profit_factor"] != float('inf') else 999.0,
-            "Best": round(s["best_trade"], 2),
-            "Worst": round(s["worst_trade"], 2),
         })
 
-    perf_df = pd.DataFrame(rows).sort_values("Expectancy", ascending=False).reset_index(drop=True)
+    perf_df = pd.DataFrame(rows).sort_values("Exp", ascending=False).reset_index(drop=True)
     st.markdown(f"**Setup Performance** -- {len(group_stats)} setup groups, {len(trades)} total trades")
 
     def _color_by_expectancy(row):
-        val = row.get("Expectancy", 0)
+        val = row.get("Exp", 0)
         if val > 0:
             return ["background-color: #e8f5e9"] * len(row)  # green
         elif val < 0:
@@ -622,21 +618,17 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
             if len(raw_names) > 1:
                 st.caption("Includes: " + ", ".join(raw_names))
 
-            # Metrics row
-            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            # Metrics row — 3 col for mobile
+            c1, c2, c3 = st.columns(3)
             c1.metric("Trades", ss["count"])
-            c2.metric("Win Rate", f"{ss['win_rate']:.0%}")
-            c3.metric("Total P&L", f"${ss['pnl']:.2f}")
-            c4.metric("Avg P&L", f"${ss['avg_pnl']:.2f}")
-            c5.metric("Avg R", f"{ss['avg_r']:.2f}R")
-            pf_val = f"{ss['profit_factor']:.2f}" if ss['profit_factor'] != float('inf') else "Inf"
-            c6.metric("Profit Factor", pf_val)
+            c2.metric("Win%", f"{ss['win_rate']:.0%}")
+            c3.metric("P&L", f"${ss['pnl']:.2f}")
 
-            c7, c8, c9, c10 = st.columns(4)
-            c7.metric("Wins", ss["wins"])
-            c8.metric("Losses", ss["losses"])
-            c9.metric("Best Trade", f"${ss['best_trade']:.2f}")
-            c10.metric("Worst Trade", f"${ss['worst_trade']:.2f}")
+            c4, c5, c6 = st.columns(3)
+            c4.metric("Exp", f"${ss['avg_pnl']:.2f}")
+            c5.metric("Avg R", f"{ss['avg_r']:.2f}")
+            pf_val = f"{ss['profit_factor']:.2f}" if ss['profit_factor'] != float('inf') else "Inf"
+            c6.metric("PF", pf_val)
 
             # Direction breakdown for this setup
             longs = [t for t in st_trades if t.direction == "Long"]
@@ -772,23 +764,27 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
     # CORE STATS (filtered)
     # ══════════════════════════════════════════════════════════
     st.markdown("**Filtered Stats**" if (setup_filter or dir_filter != "All" or exit_filter != "All") else "**Core Stats**")
-    r1c1, r1c2, r1c3, r1c4, r1c5, r1c6 = st.columns(6)
+    r1c1, r1c2, r1c3 = st.columns(3)
     r1c1.metric("Trades", n)
-    r1c2.metric("Win Rate", f"{wr:.1%}")
-    r1c3.metric("Total P&L", f"${tot_pnl:.2f}")
-    r1c4.metric("Expectancy", f"${tot_pnl/n:.2f}" if n > 0 else "$0")
-    r1c5.metric("Profit Factor", f"{gp/gl:.2f}" if gl > 0 else "inf")
-    r1c6.metric("Avg R", f"{filtered['r'].mean():.2f}R" if n > 0 else "0R")
+    r1c2.metric("Win%", f"{wr:.0%}")
+    r1c3.metric("P&L", f"${tot_pnl:.2f}")
 
-    r2c1, r2c2, r2c3, r2c4, r2c5, r2c6 = st.columns(6)
-    r2c1.metric("Avg Winner", f"${avg_w:.2f}")
-    r2c2.metric("Avg Loser", f"${avg_l:.2f}")
+    r1c4, r1c5, r1c6 = st.columns(3)
+    r1c4.metric("Exp", f"${tot_pnl/n:.2f}" if n > 0 else "$0")
+    r1c5.metric("PF", f"{gp/gl:.2f}" if gl > 0 else "inf")
+    r1c6.metric("Avg R", f"{filtered['r'].mean():.2f}" if n > 0 else "0")
+
+    r2c1, r2c2, r2c3 = st.columns(3)
+    r2c1.metric("Avg Win", f"${avg_w:.2f}")
+    r2c2.metric("Avg Loss", f"${avg_l:.2f}")
     payoff = abs(avg_w / avg_l) if avg_l != 0 else 0
-    r2c3.metric("Payoff Ratio", f"{payoff:.2f}")
+    r2c3.metric("Payoff", f"{payoff:.2f}")
+
+    r2c4, r2c5, r2c6 = st.columns(3)
     kelly_val = (wr - (1 - wr) / payoff) * 100 if payoff > 0 else 0
-    r2c4.metric("Kelly %", f"{kelly_val:.1f}%")
-    r2c5.metric("Best Trade", f"${filtered['pnl'].max():.2f}")
-    r2c6.metric("Worst Trade", f"${filtered['pnl'].min():.2f}")
+    r2c4.metric("Kelly", f"{kelly_val:.1f}%")
+    r2c5.metric("Best", f"${filtered['pnl'].max():.2f}")
+    r2c6.metric("Worst", f"${filtered['pnl'].min():.2f}")
 
     # ══════════════════════════════════════════════════════════
     # DIRECTION BREAKDOWN
@@ -809,22 +805,18 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
     # MAE / MFE
     # ══════════════════════════════════════════════════════════
     with st.expander("MAE / MFE Analysis", expanded=False):
-        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+        mc1, mc2, mc3 = st.columns(3)
         mc1.metric("Avg MAE", f"${filtered['mae'].mean():.2f}")
         mc2.metric("Avg MFE", f"${filtered['mfe'].mean():.2f}")
-        mc3.metric("MAE (R)", f"{filtered['mae_r'].mean():.2f}R")
-        mc4.metric("MFE (R)", f"{filtered['mfe_r'].mean():.2f}R")
         edge = filtered['mfe'].mean() / filtered['mae'].mean() if filtered['mae'].mean() > 0 else 0
-        mc5.metric("Edge Ratio", f"{edge:.2f}")
+        mc3.metric("Edge", f"{edge:.2f}")
 
         # Winners vs Losers MAE/MFE
         w_trades = filtered[filtered["winner"]]
         l_trades = filtered[~filtered["winner"]]
-        mc6, mc7, mc8, mc9 = st.columns(4)
-        mc6.metric("Winner Avg MAE", f"${w_trades['mae'].mean():.2f}" if len(w_trades) else "N/A")
-        mc7.metric("Winner Avg MFE", f"${w_trades['mfe'].mean():.2f}" if len(w_trades) else "N/A")
-        mc8.metric("Loser Avg MAE", f"${l_trades['mae'].mean():.2f}" if len(l_trades) else "N/A")
-        mc9.metric("Loser Avg MFE", f"${l_trades['mfe'].mean():.2f}" if len(l_trades) else "N/A")
+        mc4, mc5 = st.columns(2)
+        mc4.metric("Win MAE/MFE", f"${w_trades['mae'].mean():.2f} / ${w_trades['mfe'].mean():.2f}" if len(w_trades) else "N/A")
+        mc5.metric("Loss MAE/MFE", f"${l_trades['mae'].mean():.2f} / ${l_trades['mfe'].mean():.2f}" if len(l_trades) else "N/A")
 
         # MAE/MFE scatter
         if len(filtered) > 1:
@@ -1830,13 +1822,14 @@ def render_training_lab():
     if bot_setups_data and best_idx < len(bot_setups_data):
         bs = bot_setups_data[best_idx]
         if isinstance(bs, dict) and bs.get("stop_loss"):
-            sl_col1, sl_col2, sl_col3, sl_col4, sl_col5, sl_col6 = st.columns(6)
-            sl_col1.metric("Direction", bs.get("direction", "—"))
+            sl_col1, sl_col2, sl_col3 = st.columns(3)
+            sl_col1.metric("Dir", bs.get("direction", "—"))
             sl_col2.metric("Entry", f"${bs.get('entry_price', 0):.2f}")
-            sl_col3.metric("Stop Loss", f"${bs.get('stop_loss', 0):.2f}")
-            sl_col4.metric("Risk/Share", f"${bs.get('risk', 0):.2f}")
-            sl_col5.metric("Scalp Target (1R)", f"${bs.get('scalp_target', 0):.2f}")
-            sl_col6.metric("Swing Target (2R)", f"${bs.get('swing_target', 0):.2f}")
+            sl_col3.metric("Stop", f"${bs.get('stop_loss', 0):.2f}")
+            sl_col4, sl_col5, sl_col6 = st.columns(3)
+            sl_col4.metric("Risk", f"${bs.get('risk', 0):.2f}")
+            sl_col5.metric("Scalp (1R)", f"${bs.get('scalp_target', 0):.2f}")
+            sl_col6.metric("Swing (2R)", f"${bs.get('swing_target', 0):.2f}")
 
     # ── Trade Outcome Classification ──
     outcome_categories = [
@@ -2425,21 +2418,25 @@ def render_backtest():
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
     total_return = ((final_equity - 10000) / 10000) * 100
 
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1, m2, m3 = st.columns(3)
     m1.metric("Trades", s["total_trades"])
-    m2.metric("Win Rate", f"{s['win_rate']:.1%}")
+    m2.metric("Win Rate", f"{s['win_rate']:.0%}")
     m3.metric("Account", f"${final_equity:,.0f}")
-    m4.metric("Return", f"{total_return:+,.1f}%")
-    m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
+
+    m4, m5, m6 = st.columns(3)
+    m4.metric("Return", f"{total_return:+.1f}%")
+    m5.metric("PF", f"{s['profit_factor']:.2f}")
     m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
 
-    m7, m8, m9, m10, m11, m12 = st.columns(6)
-    m7.metric("Avg Win", f"${s['avg_winner']:.2f}/sh")
-    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}/sh")
-    m9.metric("Expectancy", f"${s['expectancy']:.2f}/sh")
-    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}R")
-    m11.metric("Kelly %", f"{s['kelly_pct']:.1f}%")
-    m12.metric("Bars Held", f"{s['avg_bars_held']:.0f}")
+    m7, m8, m9 = st.columns(3)
+    m7.metric("Avg Win", f"${s['avg_winner']:.2f}")
+    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}")
+    m9.metric("Expect", f"${s['expectancy']:.2f}")
+
+    m10, m11, m12 = st.columns(3)
+    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}")
+    m11.metric("Kelly", f"{s['kelly_pct']:.1f}%")
+    m12.metric("Bars", f"{s['avg_bars_held']:.0f}")
 
     # ── Equity curve ──
     st.markdown("---")
@@ -2645,21 +2642,25 @@ def render_backtest_daily():
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
     total_return = ((final_equity - 10000) / 10000) * 100
 
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1, m2, m3 = st.columns(3)
     m1.metric("Trades", s["total_trades"])
-    m2.metric("Win Rate", f"{s['win_rate']:.1%}")
+    m2.metric("Win Rate", f"{s['win_rate']:.0%}")
     m3.metric("Account", f"${final_equity:,.0f}")
-    m4.metric("Return", f"{total_return:+,.1f}%")
-    m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
+
+    m4, m5, m6 = st.columns(3)
+    m4.metric("Return", f"{total_return:+.1f}%")
+    m5.metric("PF", f"{s['profit_factor']:.2f}")
     m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
 
-    m7, m8, m9, m10, m11, m12 = st.columns(6)
-    m7.metric("Avg Win", f"${s['avg_winner']:.2f}/sh")
-    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}/sh")
-    m9.metric("Expectancy", f"${s['expectancy']:.2f}/sh")
-    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}R")
-    m11.metric("Kelly %", f"{s['kelly_pct']:.1f}%")
-    m12.metric("Days Held", f"{s['avg_bars_held']:.1f}")
+    m7, m8, m9 = st.columns(3)
+    m7.metric("Avg Win", f"${s['avg_winner']:.2f}")
+    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}")
+    m9.metric("Expect", f"${s['expectancy']:.2f}")
+
+    m10, m11, m12 = st.columns(3)
+    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}")
+    m11.metric("Kelly", f"{s['kelly_pct']:.1f}%")
+    m12.metric("Days", f"{s['avg_bars_held']:.1f}")
 
     # ── Equity curve ──
     st.markdown("---")
@@ -2896,25 +2897,20 @@ def render_review_trades():
 
         eval_rows.append({
             "Setup": name,
-            "Trades": total,
+            "N": total,
             "Win%": f"{wr:.0f}%",
-            "Expectancy": round(expectancy, 2),
-            "Avg R": round(avg_r, 2),
+            "Exp": round(expectancy, 2),
             "P&L": round(d["pnl"], 2),
-            "W/Trend": f"{wt} ({wt_wr:.0f}%)" if wt > 0 else "0",
-            "Vs Trend": f"{ct} ({ct_wr:.0f}%)" if ct > 0 else "0",
-            "GTGR": d["GTGR"],
-            "GTBR": d["GTBR"],
-            "BTGR": d["BTGR"],
-            "BTBR": d["BTBR"],
-            "Good Trade%": f"{good_trade_pct:.0f}%",
+            "W/T": f"{wt}({wt_wr:.0f}%)" if wt > 0 else "0",
+            "C/T": f"{ct}({ct_wr:.0f}%)" if ct > 0 else "0",
+            "GT%": f"{good_trade_pct:.0f}%",
             "Verdict": verdict,
         })
 
-    eval_df = pd.DataFrame(eval_rows).sort_values("Expectancy", ascending=False).reset_index(drop=True)
+    eval_df = pd.DataFrame(eval_rows).sort_values("Exp", ascending=False).reset_index(drop=True)
 
     def _color_eval_row(row):
-        exp = row.get("Expectancy", 0)
+        exp = row.get("Exp", 0)
         verdict = row.get("Verdict", "")
         if exp > 0:
             return ["background-color: #e8f5e9"] * len(row)
@@ -2930,11 +2926,8 @@ def render_review_trades():
     )
 
     # Legend
-    st.caption("GTGR = Good Trade Good Result | GTBR = Good Trade Bad Result | "
-               "BTGR = Bad Trade Good Result | BTBR = Bad Trade Bad Result")
-    st.caption("W/Trend = with-trend trades (win%) | Vs Trend = counter-trend trades (win%)")
-    st.caption("Verdict: TAKE = positive expectancy + 50%+ good trades | "
-               "MAYBE = positive expectancy OR 40%+ quality & wins | AVOID = negative expectancy")
+    st.caption("W/T = with-trend (win%) | C/T = counter-trend (win%) | GT% = good trade %")
+    st.caption("TAKE = +exp & 50%+ GT | MAYBE = +exp or 40%+ GT & wins | AVOID = -exp")
 
     # ── Context Breakdown ──
     with st.expander("Context Breakdown (Day Type & Market Cycle)", expanded=False):
@@ -2980,17 +2973,16 @@ def render_review_trades():
     st.markdown("---")
     st.markdown("### Individual Trade Review")
 
-    # Filter controls
-    fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
+    # Filter controls — 2 col for mobile
+    setup_names = sorted(set(_normalize_setup_name(t.setup_name) for t in trades))
+    rv_setup_filter = st.multiselect("Setup", setup_names, default=[], key="rv_setup_filter")
+    fc1, fc2, fc3 = st.columns(3)
     with fc1:
-        setup_names = sorted(set(_normalize_setup_name(t.setup_name) for t in trades))
-        rv_setup_filter = st.multiselect("Filter by Setup", setup_names, default=[], key="rv_setup_filter")
+        rv_outcome = st.selectbox("Result", ["All", "Winners", "Losers"], key="rv_outcome")
     with fc2:
-        rv_outcome = st.selectbox("Outcome", ["All", "Winners", "Losers"], key="rv_outcome")
+        rv_direction = st.selectbox("Dir", ["All", "Long", "Short"], key="rv_direction")
     with fc3:
-        rv_direction = st.selectbox("Direction", ["All", "Long", "Short"], key="rv_direction")
-    with fc4:
-        rv_cat_filter = st.selectbox("Category", ["All"] + CATEGORIES, key="rv_cat_filter")
+        rv_cat_filter = st.selectbox("Cat", ["All"] + CATEGORIES, key="rv_cat_filter")
 
     filtered_trades = trades
     if rv_setup_filter:
@@ -3017,22 +3009,16 @@ def render_review_trades():
     st.session_state["rv_idx"] = min(st.session_state["rv_idx"], len(filtered_trades) - 1)
 
     max_idx = len(filtered_trades) - 1
-    nav1, nav2, nav3, nav4, nav5 = st.columns([1, 1, 3, 1, 1])
+    nav1, nav2, nav3 = st.columns([1, 1, 1])
     with nav1:
-        if st.button("First", key="rv_first", use_container_width=True):
-            st.session_state["rv_idx"] = 0
-    with nav2:
         if st.button("Prev", key="rv_prev", use_container_width=True):
             st.session_state["rv_idx"] = max(0, st.session_state["rv_idx"] - 1)
-    with nav3:
-        rv_idx = st.slider("Trade", 0, max_idx, st.session_state["rv_idx"], key="rv_slider")
+    with nav2:
+        rv_idx = st.number_input("Trade #", 0, max_idx, st.session_state["rv_idx"], key="rv_slider")
         st.session_state["rv_idx"] = rv_idx
-    with nav4:
+    with nav3:
         if st.button("Next", key="rv_next", use_container_width=True):
             st.session_state["rv_idx"] = min(max_idx, st.session_state["rv_idx"] + 1)
-    with nav5:
-        if st.button("Last", key="rv_last", use_container_width=True):
-            st.session_state["rv_idx"] = max_idx
 
     idx = st.session_state["rv_idx"]
     t = filtered_trades[idx]
@@ -3051,32 +3037,34 @@ def render_review_trades():
         unsafe_allow_html=True,
     )
 
-    # Metrics
-    d1, d2, d3, d4, d5, d6 = st.columns(6)
-    d1.metric("P&L", f"${t.pnl:+.2f}/sh")
-    d2.metric("R-Multiple", f"{t.r_multiple:+.2f}R")
-    d3.metric("Entry", f"${t.entry_price:.2f}")
-    d4.metric("Exit", f"${t.exit_price:.2f}")
+    # Metrics — 3 columns for mobile
+    d1, d2, d3 = st.columns(3)
+    d1.metric("P&L", f"${t.pnl:+.2f}")
+    d2.metric("R", f"{t.r_multiple:+.2f}")
+    d3.metric("Result", outcome_text)
+
+    d4, d5, d6 = st.columns(3)
+    d4.metric("Entry", f"${t.entry_price:.2f}")
     d5.metric("Stop", f"${t.stop_loss:.2f}")
-    d6.metric("Result", outcome_text)
+    d6.metric("Exit", f"${t.exit_price:.2f}")
 
-    d7, d8, d9, d10, d11, d12 = st.columns(6)
-    d7.metric("Order Type", t.order_type)
-    d8.metric("Exit Reason", t.exit_reason.replace("_", " ").title())
-    d9.metric("Bars Held", t.bars_held)
-    d10.metric("MAE", f"${t.mae:.2f}")
-    d11.metric("MFE", f"${t.mfe:.2f}")
-    d12.metric("Entry Time", t.entry_time[:16] if t.entry_time else "N/A")
+    d7, d8, d9 = st.columns(3)
+    d7.metric("Exit", t.exit_reason.replace("_", " ").title())
+    d8.metric("Bars", t.bars_held)
+    entry_display = t.entry_time[5:16] if t.entry_time and len(t.entry_time) >= 16 else (t.entry_time or "N/A")
+    d9.metric("Time", entry_display)
 
-    # Context row
-    ctx1, ctx2, ctx3, ctx4, ctx5, ctx6 = st.columns(6)
-    ctx1.metric("Ticker", t.ticker or "N/A")
-    ctx2.metric("Day Type", t.day_type or "N/A")
-    ctx3.metric("Mkt Cycle", t.market_cycle or "N/A")
-    ctx4.metric("Confidence", f"{t.confidence:.0%}" if t.confidence else "N/A")
-    ctx5.metric("EMA Position", t.ema_position or "N/A")
-    trend_label = "With Trend" if t.with_trend else "Counter-Trend"
-    ctx6.metric("Trend Align", trend_label)
+    # Context — 3 columns for mobile
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Day Type", t.day_type or "N/A")
+    c2.metric("Cycle", t.market_cycle or "N/A")
+    trend_label = "With" if t.with_trend else "Counter"
+    c3.metric("Trend", trend_label)
+
+    c4, c5, c6 = st.columns(3)
+    c4.metric("Conf", f"{t.confidence:.0%}" if t.confidence else "N/A")
+    c5.metric("EMA", t.ema_position.replace(" EMA", "") if t.ema_position else "N/A")
+    c6.metric("MAE/MFE", f"{t.mae:.2f}/{t.mfe:.2f}")
 
     # Chart
     source_df = None
