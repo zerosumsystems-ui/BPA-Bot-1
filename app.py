@@ -2278,47 +2278,83 @@ def render_scanner():
         find_btn = st.button("Find Examples", type="primary", key="find_btn")
 
     if find_btn:
-        db_key = get_databento_key()
-        if not db_key:
-            st.warning("Setup finder requires Databento API key for bulk S&P 500 scanning. Without it, use the ticker scanner above.")
-            return
-
-        with st.spinner(f"Scanning S&P 500 for {find_setup} on {scan_date}..."):
-            from data_source import get_data_source as _get_ds
+        with st.spinner(f"Scanning for {find_setup} on {scan_date}..."):
             tickers = get_sp500_tickers()
             start_date = (scan_date - _dt.timedelta(days=4)).strftime("%Y-%m-%d")
             end_date = scan_date.strftime("%Y-%m-%d")
 
-            ds = _get_ds(api_key=db_key)
-            if not hasattr(ds, 'get_bulk_chart_data'):
-                st.warning("Bulk scanning requires Databento. yFinance fallback doesn't support bulk fetching.")
-                return
+            bulk_df = pd.DataFrame()
+            use_yfinance = False
 
-            bulk_df = ds.get_bulk_chart_data(tickers, start_date, end_date)
+            # Try Databento first (fast bulk fetch)
+            db_key = get_databento_key()
+            if db_key:
+                try:
+                    from data_source import get_data_source as _get_ds
+                    ds = _get_ds(api_key=db_key)
+                    if hasattr(ds, 'get_bulk_chart_data'):
+                        bulk_df = ds.get_bulk_chart_data(tickers, start_date, end_date)
+                except Exception as e:
+                    st.caption(f"Databento unavailable ({e}), falling back to yFinance...")
+
+            # Fallback: use yFinance (slower, ticker-by-ticker)
             if bulk_df.empty:
-                st.error("No data returned. Check API credits or try a different date.")
-                return
+                use_yfinance = True
+                try:
+                    import yfinance as yf
+                except ImportError:
+                    st.error("Neither Databento nor yFinance available. Install yfinance: pip install yfinance")
+                    return
 
             found_charts = []
-            grouped = bulk_df.groupby("symbol")
-            progress_bar = st.progress(0, text="Analyzing...")
-            total = len(grouped)
 
-            for i, (sym, sym_df) in enumerate(grouped):
-                progress_bar.progress((i + 1) / total, text=f"Analyzing {sym}...")
-                try:
-                    result = analyze_bars(sym_df)
-                    for s in result.get("setups", []):
-                        name = s.get("setup_name", "") if isinstance(s, dict) else getattr(s, "setup_name", "")
-                        if name == find_setup:
-                            fig = build_chart(sym_df, sym)
-                            fig = _add_annotations(fig, sym_df, {"action": result.get("action", ""), "setups": [s]}, best_only=False)
-                            found_charts.append((sym, fig))
-                            break
-                except Exception:
-                    pass
+            if use_yfinance:
+                # yFinance fallback: scan ticker-by-ticker
+                progress_bar = st.progress(0, text="Scanning with yFinance...")
+                total = len(tickers)
+                for i, sym in enumerate(tickers):
+                    if len(found_charts) >= 20:  # Cap results to avoid timeout
+                        break
+                    progress_bar.progress((i + 1) / total, text=f"Scanning {sym} ({i+1}/{total})...")
+                    try:
+                        sym_df = yf.download(sym, start=start_date, end=end_date, interval="5m", progress=False)
+                        if sym_df is None or sym_df.empty:
+                            continue
+                        if isinstance(sym_df.columns, pd.MultiIndex):
+                            sym_df.columns = sym_df.columns.get_level_values(0)
+                        if len(sym_df) < 10:
+                            continue
+                        result = analyze_bars(sym_df)
+                        for s in result.get("setups", []):
+                            name = s.get("setup_name", "") if isinstance(s, dict) else getattr(s, "setup_name", "")
+                            if name == find_setup:
+                                fig = build_chart(sym_df, sym)
+                                fig = _add_annotations(fig, sym_df, {"action": result.get("action", ""), "setups": [s]}, best_only=False)
+                                found_charts.append((sym, fig))
+                                break
+                    except Exception:
+                        pass
+                progress_bar.empty()
+            else:
+                # Databento bulk path
+                grouped = bulk_df.groupby("symbol")
+                progress_bar = st.progress(0, text="Analyzing...")
+                total = len(grouped)
+                for i, (sym, sym_df) in enumerate(grouped):
+                    progress_bar.progress((i + 1) / total, text=f"Analyzing {sym}...")
+                    try:
+                        result = analyze_bars(sym_df)
+                        for s in result.get("setups", []):
+                            name = s.get("setup_name", "") if isinstance(s, dict) else getattr(s, "setup_name", "")
+                            if name == find_setup:
+                                fig = build_chart(sym_df, sym)
+                                fig = _add_annotations(fig, sym_df, {"action": result.get("action", ""), "setups": [s]}, best_only=False)
+                                found_charts.append((sym, fig))
+                                break
+                    except Exception:
+                        pass
+                progress_bar.empty()
 
-            progress_bar.empty()
             if found_charts:
                 st.success(f"Found {len(found_charts)} stocks with **{find_setup}**!")
                 for sym, fig in found_charts:
