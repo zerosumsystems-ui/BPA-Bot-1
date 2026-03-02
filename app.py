@@ -2693,24 +2693,67 @@ def render_backtest_daily():
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
 
+def _classify_trade(t) -> tuple:
+    """Auto-classify a single trade into one of 4 categories.
+    Returns (category_str, quality_score, reasons_list)."""
+    is_good_result = t.pnl > 0
+    score = 0
+    reasons = []
+
+    if t.exit_reason in ("scalp_target", "swing_target"):
+        score += 2; reasons.append("Hit target")
+    if t.mfe > 0 and t.mae > 0 and t.mfe > t.mae:
+        score += 1; reasons.append(f"MFE > MAE")
+    if t.r_multiple >= 1.0:
+        score += 1; reasons.append(f"R={t.r_multiple:+.1f}")
+    if t.exit_reason == "stop_loss" and t.bars_held <= 2:
+        score -= 2; reasons.append("Immediate stop")
+    if t.exit_reason in ("eod_close", "hold_limit") and t.pnl < 0:
+        score -= 1; reasons.append("Held to close at loss")
+    if t.exit_reason == "unfilled":
+        score -= 2; reasons.append("Unfilled")
+
+    is_good_trade = score >= 1
+    if is_good_trade and is_good_result:
+        cat = "Good Trade, Good Result"
+    elif is_good_trade and not is_good_result:
+        cat = "Good Trade, Bad Result"
+    elif not is_good_trade and is_good_result:
+        cat = "Bad Trade, Good Result"
+    else:
+        cat = "Bad Trade, Bad Result"
+    return cat, score, reasons
+
+
+CATEGORIES = [
+    "Good Trade, Good Result",
+    "Good Trade, Bad Result",
+    "Bad Trade, Good Result",
+    "Bad Trade, Bad Result",
+]
+CAT_COLORS = {
+    "Good Trade, Good Result": "#00C853",
+    "Good Trade, Bad Result": "#FF9800",
+    "Bad Trade, Good Result": "#FF9800",
+    "Bad Trade, Bad Result": "#FF1744",
+}
+
+
 def render_review_trades():
-    """Review Trades tab — step through trades one by one with chart + details."""
-    # Pick which backtest results to review
+    """Review Trades tab — classify every trade, evaluate which setups to take."""
+    from collections import Counter, defaultdict
+
     has_5m = st.session_state.get("bt_report") is not None
     has_daily = st.session_state.get("dt_report") is not None
 
     if not has_5m and not has_daily:
-        st.info("Run a backtest first (Backtest 5m or Backtest Daily), then come here to review trades one by one.")
+        st.info("Run a backtest first (Backtest 5m or Backtest Daily), then come here to review and classify trades.")
         return
 
     sources = []
-    if has_5m:
-        sources.append("Backtest 5m")
-    if has_daily:
-        sources.append("Backtest Daily")
-
+    if has_5m: sources.append("Backtest 5m")
+    if has_daily: sources.append("Backtest Daily")
     source = st.radio("Review trades from:", sources, horizontal=True, key="rv_source")
-    st.markdown("---")
 
     if source == "Backtest 5m":
         report = st.session_state["bt_report"]
@@ -2728,25 +2771,145 @@ def render_review_trades():
         st.warning("No trades in this backtest.")
         return
 
+    # ── Auto-classify ALL trades upfront ──
+    if "rv_classifications" not in st.session_state:
+        st.session_state["rv_classifications"] = {}
+
+    classifications = st.session_state["rv_classifications"]
+    for t in trades:
+        tk = f"{t.entry_time}_{t.setup_name}_{t.direction}"
+        if tk not in classifications:
+            cat, _, _ = _classify_trade(t)
+            classifications[tk] = cat
+
+    # Build per-trade category lookup
+    trade_cats = {}
+    for t in trades:
+        tk = f"{t.entry_time}_{t.setup_name}_{t.direction}"
+        trade_cats[id(t)] = classifications.get(tk, "Bad Trade, Bad Result")
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  SECTION 1: SETUP EVALUATION DASHBOARD
+    # ═══════════════════════════════════════════════════════════════════
+    st.markdown("### Setup Evaluation Dashboard")
+    st.caption(f"All {len(trades)} trades auto-classified. Override individual trades below.")
+
+    # Overall category breakdown
+    all_cat_counts = Counter(trade_cats.values())
+    ov1, ov2, ov3, ov4 = st.columns(4)
+    for col, cat in zip([ov1, ov2, ov3, ov4], CATEGORIES):
+        c = all_cat_counts.get(cat, 0)
+        pct = c / len(trades) * 100 if trades else 0
+        short_label = cat.replace("Good Trade, Good Result", "GTGR").replace(
+            "Good Trade, Bad Result", "GTBR").replace(
+            "Bad Trade, Good Result", "BTGR").replace(
+            "Bad Trade, Bad Result", "BTBR")
+        col.metric(short_label, f"{c} ({pct:.0f}%)")
+
+    # Per-setup breakdown table
+    st.markdown("---")
+    st.markdown("**Per-Setup Classification Breakdown**")
+
+    setup_data = defaultdict(lambda: {
+        "trades": 0, "pnl": 0.0, "wins": 0,
+        "GTGR": 0, "GTBR": 0, "BTGR": 0, "BTBR": 0,
+    })
+
+    cat_short = {
+        "Good Trade, Good Result": "GTGR",
+        "Good Trade, Bad Result": "GTBR",
+        "Bad Trade, Good Result": "BTGR",
+        "Bad Trade, Bad Result": "BTBR",
+    }
+
+    for t in trades:
+        norm_name = _normalize_setup_name(t.setup_name)
+        d = setup_data[norm_name]
+        d["trades"] += 1
+        d["pnl"] += t.pnl
+        if t.is_winner: d["wins"] += 1
+        cat = trade_cats.get(id(t), "Bad Trade, Bad Result")
+        d[cat_short.get(cat, "BTBR")] += 1
+
+    # Build evaluation rows with verdict
+    eval_rows = []
+    for name, d in sorted(setup_data.items(), key=lambda x: -x[1]["trades"]):
+        total = d["trades"]
+        wr = d["wins"] / total * 100 if total > 0 else 0
+        good_trade_pct = (d["GTGR"] + d["GTBR"]) / total * 100 if total > 0 else 0
+        good_result_pct = (d["GTGR"] + d["BTGR"]) / total * 100 if total > 0 else 0
+
+        # Verdict logic
+        if good_trade_pct >= 50 and wr >= 50:
+            verdict = "TAKE"
+        elif good_trade_pct >= 40 and wr >= 40:
+            verdict = "MAYBE"
+        elif total < 5:
+            verdict = "LOW DATA"
+        else:
+            verdict = "AVOID"
+
+        eval_rows.append({
+            "Setup": name,
+            "Trades": total,
+            "Win%": f"{wr:.0f}%",
+            "P&L": f"${d['pnl']:+.2f}",
+            "GTGR": d["GTGR"],
+            "GTBR": d["GTBR"],
+            "BTGR": d["BTGR"],
+            "BTBR": d["BTBR"],
+            "Good Trade%": f"{good_trade_pct:.0f}%",
+            "Verdict": verdict,
+        })
+
+    eval_df = pd.DataFrame(eval_rows)
+    st.dataframe(
+        eval_df.style.apply(
+            lambda row: [
+                "background-color: #e8f5e9" if row["Verdict"] == "TAKE"
+                else "background-color: #fff3e0" if row["Verdict"] == "MAYBE"
+                else "background-color: #ffebee" if row["Verdict"] == "AVOID"
+                else ""
+            ] * len(row), axis=1
+        ),
+        use_container_width=True, hide_index=True, key="rv_eval_table",
+    )
+
+    # Legend
+    st.caption("GTGR = Good Trade Good Result | GTBR = Good Trade Bad Result | "
+               "BTGR = Bad Trade Good Result | BTBR = Bad Trade Bad Result")
+    st.caption("Verdict: TAKE = 50%+ good trades & 50%+ win rate | "
+               "MAYBE = 40%+ both | AVOID = below thresholds | LOW DATA = <5 trades")
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  SECTION 2: INDIVIDUAL TRADE REVIEW
+    # ═══════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("### Individual Trade Review")
+
     # Filter controls
-    fc1, fc2, fc3 = st.columns([2, 1, 1])
+    fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
     with fc1:
-        setup_names = sorted(set(t.setup_name for t in trades))
+        setup_names = sorted(set(_normalize_setup_name(t.setup_name) for t in trades))
         rv_setup_filter = st.multiselect("Filter by Setup", setup_names, default=[], key="rv_setup_filter")
     with fc2:
         rv_outcome = st.selectbox("Outcome", ["All", "Winners", "Losers"], key="rv_outcome")
     with fc3:
         rv_direction = st.selectbox("Direction", ["All", "Long", "Short"], key="rv_direction")
+    with fc4:
+        rv_cat_filter = st.selectbox("Category", ["All"] + CATEGORIES, key="rv_cat_filter")
 
     filtered_trades = trades
     if rv_setup_filter:
-        filtered_trades = [t for t in filtered_trades if t.setup_name in rv_setup_filter]
+        filtered_trades = [t for t in filtered_trades if _normalize_setup_name(t.setup_name) in rv_setup_filter]
     if rv_outcome == "Winners":
         filtered_trades = [t for t in filtered_trades if t.is_winner]
     elif rv_outcome == "Losers":
         filtered_trades = [t for t in filtered_trades if not t.is_winner]
     if rv_direction != "All":
         filtered_trades = [t for t in filtered_trades if t.direction == rv_direction]
+    if rv_cat_filter != "All":
+        filtered_trades = [t for t in filtered_trades if trade_cats.get(id(t)) == rv_cat_filter]
 
     if not filtered_trades:
         st.warning("No trades match filters.")
@@ -2757,6 +2920,8 @@ def render_review_trades():
     # Navigation
     if "rv_idx" not in st.session_state:
         st.session_state["rv_idx"] = 0
+    # Clamp index
+    st.session_state["rv_idx"] = min(st.session_state["rv_idx"], len(filtered_trades) - 1)
 
     max_idx = len(filtered_trades) - 1
     nav1, nav2, nav3, nav4, nav5 = st.columns([1, 1, 3, 1, 1])
@@ -2779,13 +2944,21 @@ def render_review_trades():
     idx = st.session_state["rv_idx"]
     t = filtered_trades[idx]
 
-    # Trade details
+    # Trade header with category badge
     st.markdown("---")
-    outcome_color = "#00C853" if t.is_winner else "#FF1744"
+    trade_key = f"{t.entry_time}_{t.setup_name}_{t.direction}"
+    current_cat = classifications.get(trade_key, "Bad Trade, Bad Result")
+    cat_color = CAT_COLORS.get(current_cat, "#999")
     outcome_text = "WIN" if t.is_winner else "LOSS"
 
-    st.markdown(f"### Trade {idx + 1} of {len(filtered_trades)} — {t.setup_name} ({t.direction})")
+    st.markdown(
+        f"### Trade {idx + 1} / {len(filtered_trades)} — {t.setup_name} ({t.direction}) "
+        f'<span style="background:{cat_color};color:white;padding:4px 10px;border-radius:4px;'
+        f'font-size:0.8em;font-weight:600;vertical-align:middle;">{current_cat}</span>',
+        unsafe_allow_html=True,
+    )
 
+    # Metrics
     d1, d2, d3, d4, d5, d6 = st.columns(6)
     d1.metric("P&L", f"${t.pnl:+.2f}/sh")
     d2.metric("R-Multiple", f"{t.r_multiple:+.2f}R")
@@ -2805,11 +2978,9 @@ def render_review_trades():
     # Chart
     source_df = None
     trade_ticker = getattr(t, "ticker", ticker)
-
     if is_daily:
         source_df = st.session_state.get("dt_source_df")
     else:
-        # For 5m, find the day's data
         if t.entry_time and len(t.entry_time) >= 10:
             day_key = t.entry_time[:10]
             source_df = daily_dfs.get(day_key)
@@ -2820,111 +2991,56 @@ def render_review_trades():
     else:
         st.caption("Chart data not available for this trade.")
 
-    # ── Trade Classification ──
-    st.markdown("---")
-    st.markdown("**Trade Quality Classification**")
-    trade_key = f"{t.entry_time}_{t.setup_name}_{t.direction}"
-    if "rv_classifications" not in st.session_state:
-        st.session_state["rv_classifications"] = {}
-
-    # Auto-classify based on setup quality heuristics
-    # Good trade indicators: strong R exit, good risk/reward, reasonable bars held
-    is_good_result = t.pnl > 0
-
-    # Setup quality heuristics
-    quality_score = 0
-    quality_reasons = []
-    # Positive: hit target (not just EOD/hold close)
-    if t.exit_reason in ("scalp_target", "swing_target"):
-        quality_score += 2
-        quality_reasons.append("Hit target")
-    # Positive: favorable MFE vs MAE (market moved in your favor more than against)
-    if t.mfe > 0 and t.mae > 0 and t.mfe > t.mae:
-        quality_score += 1
-        quality_reasons.append(f"MFE > MAE ({t.mfe:.2f} > {t.mae:.2f})")
-    # Positive: good R-multiple
-    if t.r_multiple >= 1.0:
-        quality_score += 1
-        quality_reasons.append(f"R >= 1.0 ({t.r_multiple:.2f}R)")
-    # Negative: stopped out immediately (held < 2 bars)
-    if t.exit_reason == "stop_loss" and t.bars_held <= 2:
-        quality_score -= 2
-        quality_reasons.append("Immediate stop (held <3 bars)")
-    # Negative: EOD close with loss
-    if t.exit_reason in ("eod_close", "hold_limit") and t.pnl < 0:
-        quality_score -= 1
-        quality_reasons.append("Held to close/limit at a loss")
-    # Negative: MFE was much better than exit (left money on table)
-    if t.mfe > 0 and t.pnl > 0 and t.mfe > t.pnl * 2:
-        quality_reasons.append(f"Left profit on table (MFE ${t.mfe:.2f} vs P&L ${t.pnl:.2f})")
-    # Negative: unfilled limit order
-    if t.exit_reason == "unfilled":
-        quality_score -= 2
-        quality_reasons.append("Limit order never filled")
-
-    is_good_trade = quality_score >= 1
-
-    auto_category = ""
-    if is_good_trade and is_good_result:
-        auto_category = "Good Trade, Good Result"
-    elif is_good_trade and not is_good_result:
-        auto_category = "Good Trade, Bad Result"
-    elif not is_good_trade and is_good_result:
-        auto_category = "Bad Trade, Good Result"
-    else:
-        auto_category = "Bad Trade, Bad Result"
-
-    categories = ["Good Trade, Good Result", "Good Trade, Bad Result",
-                   "Bad Trade, Good Result", "Bad Trade, Bad Result"]
-
-    saved_cat = st.session_state["rv_classifications"].get(trade_key)
-    default_idx = categories.index(saved_cat) if saved_cat in categories else categories.index(auto_category)
+    # ── Classification override ──
+    _, _, reasons = _classify_trade(t)
 
     cat1, cat2 = st.columns([2, 3])
     with cat1:
-        selected_cat = st.selectbox("Classification", categories, index=default_idx,
-                                     key=f"rv_cat_{idx}", help="Auto-classified based on heuristics. Override if you disagree.")
-        st.session_state["rv_classifications"][trade_key] = selected_cat
+        default_idx = CATEGORIES.index(current_cat) if current_cat in CATEGORIES else 3
+        selected_cat = st.selectbox(
+            "Classification", CATEGORIES, index=default_idx,
+            key=f"rv_cat_{idx}",
+            help="Auto-classified. Override if you disagree.",
+        )
+        if selected_cat != current_cat:
+            classifications[trade_key] = selected_cat
     with cat2:
-        if quality_reasons:
-            st.caption("Auto-classification reasoning: " + " | ".join(quality_reasons))
+        if reasons:
+            st.caption("Auto-reasoning: " + " | ".join(reasons))
 
-    # Color indicator
-    cat_colors = {
-        "Good Trade, Good Result": "#00C853",
-        "Good Trade, Bad Result": "#FF9800",
-        "Bad Trade, Good Result": "#FF9800",
-        "Bad Trade, Bad Result": "#FF1744",
-    }
-    cat_color = cat_colors.get(selected_cat, "#999")
-    st.markdown(f'<div style="background:{cat_color};color:white;padding:6px 12px;border-radius:6px;'
-                f'font-weight:600;display:inline-block;margin:4px 0;">{selected_cat}</div>',
-                unsafe_allow_html=True)
-
-    # Classification summary across all reviewed trades
-    all_cats = st.session_state["rv_classifications"]
-    if len(all_cats) >= 2:
-        with st.expander("Classification Summary", expanded=False):
-            from collections import Counter
-            counts = Counter(all_cats.values())
-            total_classified = sum(counts.values())
-            sum_rows = []
-            for cat in categories:
-                c = counts.get(cat, 0)
-                pct = c / total_classified * 100 if total_classified > 0 else 0
-                sum_rows.append({"Category": cat, "Count": c, "%": f"{pct:.0f}%"})
-            st.dataframe(pd.DataFrame(sum_rows), width="stretch", hide_index=True, key="rv_cat_summary")
-
-    # Trade notes
-    st.markdown("---")
+    # Notes
     if "rv_notes" not in st.session_state:
         st.session_state["rv_notes"] = {}
     note_key = f"rv_note_{trade_key}"
     existing_note = st.session_state["rv_notes"].get(note_key, "")
-    note = st.text_area("Your notes on this trade:", value=existing_note, key=f"rv_note_input_{idx}",
-                         placeholder="What would Al Brooks say about this setup? Was the context right?")
+    note = st.text_area("Notes:", value=existing_note, key=f"rv_note_input_{idx}",
+                         placeholder="What would Al Brooks say? Was the context right?", height=80)
     if note != existing_note:
         st.session_state["rv_notes"][note_key] = note
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  SECTION 3: EXPORT
+    # ═══════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    export_rows = []
+    for t in trades:
+        tk = f"{t.entry_time}_{t.setup_name}_{t.direction}"
+        export_rows.append({
+            "Entry Time": t.entry_time,
+            "Setup": t.setup_name,
+            "Direction": t.direction,
+            "P&L": round(t.pnl, 2),
+            "R": round(t.r_multiple, 2),
+            "Result": "Win" if t.is_winner else "Loss",
+            "Exit Reason": t.exit_reason,
+            "Category": classifications.get(tk, ""),
+            "Notes": st.session_state.get("rv_notes", {}).get(f"rv_note_{tk}", ""),
+        })
+    export_df = pd.DataFrame(export_rows)
+    st.download_button(
+        "Export Classifications CSV", export_df.to_csv(index=False),
+        "trade_classifications.csv", "text/csv", key="rv_export_csv",
+    )
 
 
 def main():
