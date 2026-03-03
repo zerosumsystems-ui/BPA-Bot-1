@@ -1,0 +1,60 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Double Bottom (+ Fade LL DB)", overlay=true, max_labels_count=500)
+
+// ── Inputs ──
+swingLookback = input.int(3, "Swing Lookback", minval=2, maxval=10, tooltip="Bars left/right to confirm a swing low")
+tolerance     = input.float(0.3, "Price Tolerance (%)", minval=0.05, maxval=2.0, step=0.05, tooltip="Max % spread between two swing lows")
+showDB        = input.bool(true, "Show Double Bottom (Long)")
+showHLDB      = input.bool(true, "Show Higher Low DB (Long)")
+showLLDB      = input.bool(true, "Show Fade Lower Low DB (Short)")
+
+// ── Swing Low Detection ──
+isSwingLow = true
+for j = 1 to swingLookback
+    if not (low[swingLookback] <= low[swingLookback - j] and low[swingLookback] <= low[swingLookback + j])
+        isSwingLow := false
+        break
+
+// Track last two swing lows
+var float swLow1 = na
+var float swLow2 = na
+
+if isSwingLow
+    swLow1 := swLow2
+    swLow2 := low[swingLookback]
+
+// ── Pattern Detection ──
+spread = math.abs(nz(swLow1) - nz(swLow2))
+avg    = (nz(swLow1) + nz(swLow2)) / 2.0
+isDouble = not na(swLow1) and not na(swLow2) and avg > 0 and (spread / avg * 100) < tolerance
+
+// Variant classification
+isExact     = isDouble and math.abs(swLow2 - swLow1) < syminfo.mintick * 2
+isHigherLow = isDouble and swLow2 > swLow1 and not isExact
+isLowerLow  = isDouble and swLow2 < swLow1 and not isExact
+isPlainDB   = isDouble and not isHigherLow and not isLowerLow
+
+fired = isSwingLow and isDouble
+
+// ── Candle Coloring ──
+// DB and HL DB = Long (green), LL DB = Fade/Short (red — direction is reversed)
+barcolor(fired and isPlainDB and showDB ? color.new(#39ff14, 0) : na)
+barcolor(fired and isHigherLow and showHLDB ? color.new(#39ff14, 0) : na)
+barcolor(fired and isLowerLow and showLLDB ? color.new(#ff2e63, 0) : na)
+
+// ── Labels ──
+if fired and isPlainDB and showDB
+    label.new(bar_index - swingLookback, low[swingLookback], "DB\nLONG", style=label.style_label_up, color=color.new(#39ff14, 80), textcolor=#39ff14, size=size.small)
+if fired and isHigherLow and showHLDB
+    label.new(bar_index - swingLookback, low[swingLookback], "HL DB\nLONG", style=label.style_label_up, color=color.new(#39ff14, 80), textcolor=#39ff14, size=size.small)
+if fired and isLowerLow and showLLDB
+    // Fade = SHORT. The pattern "looks" like a double bottom but the lower low means sellers are winning.
+    label.new(bar_index - swingLookback, low[swingLookback], "LL DB\nFADE SHORT", style=label.style_label_up, color=color.new(#ff2e63, 80), textcolor=#ff2e63, size=size.small)
+
+// ── Alerts ──
+alertcondition(fired and isPlainDB and showDB, "Double Bottom — Long", "Double Bottom detected — buy signal")
+alertcondition(fired and isHigherLow and showHLDB, "Higher Low DB — Long", "Higher Low Double Bottom — buy signal")
+alertcondition(fired and isLowerLow and showLLDB, "Fade LL DB — Short", "Fade Lower Low Double Bottom — SELL signal (faded)")

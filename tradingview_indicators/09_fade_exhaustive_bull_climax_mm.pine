@@ -1,0 +1,54 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Fade Exhaustive Bull Climax at MM", overlay=true, max_labels_count=500)
+
+// ── Inputs ──
+trendWindow     = input.int(20, "Trend Analysis Window", minval=15, maxval=40)
+spikeBars       = input.int(5, "Initial Spike Bars", minval=3, maxval=10)
+exhaustionMult  = input.float(2.5, "Exhaustion Bar Size (x avg)", minval=1.5, maxval=4.0, step=0.25)
+alertOn         = input.bool(true, "Enable Alerts")
+
+// ── EMA for trend context ──
+ema20 = ta.ema(close, 20)
+
+// ── Spike Detection ──
+// Look at the first N bars of a trend window to find the initial spike
+spikeLow  = ta.lowest(low, spikeBars)[trendWindow - spikeBars]
+spikeHigh = ta.highest(high, spikeBars)[trendWindow - spikeBars]
+spikeSize = spikeHigh - spikeLow
+
+// ── Measured Move Target ──
+// MM = spike doubled from its high
+mmTarget = spikeHigh + spikeSize
+
+// ── Channel Bar Average (bars after the spike) ──
+channelAvg = ta.sma(high - low, trendWindow - spikeBars)
+
+// ── Exhaustion Conditions ──
+aboveEma        = close > ema20
+hitsMMTarget    = high >= mmTarget
+massiveBar      = (high - low) > channelAvg * exhaustionMult
+closesNearLow   = close < (high + low) / 2.0  // Closes in lower half (reversal)
+
+fired = aboveEma and hitsMMTarget and massiveBar and closesNearLow and spikeSize > 0
+
+// Prevent re-firing
+var int lastFiredBar = 0
+fireOnce = fired and (bar_index - lastFiredBar) > 10
+if fireOnce
+    lastFiredBar := bar_index
+
+// ── Candle Coloring ──
+barcolor(fireOnce ? color.new(#ff2e63, 0) : na)
+
+// ── Labels ──
+if fireOnce
+    label.new(bar_index, high, "MM CLX", style=label.style_label_down, color=color.new(#ff2e63, 75), textcolor=#ff2e63, size=size.small)
+
+// ── Plot MM target line (reference) ──
+plot(spikeSize > 0 and close > ema20 ? mmTarget : na, "MM Target", color=color.new(#f59e0b, 60), linewidth=1, style=plot.style_cross)
+
+// ── Alerts ──
+alertcondition(fireOnce, "Exhaustive Bull Climax at MM", "Fade Exhaustive Bull Climax — hit measured move target with massive exhaustion bar")

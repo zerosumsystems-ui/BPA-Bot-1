@@ -33,30 +33,392 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Professional Styling ──
+# ── Design System (Spotify dark + Monzo cards + Zara whitespace) ──
+_CYBER_LIME = "#39ff14"
+_ELECTRIC_CRIMSON = "#ff2e63"
+_NEON_BLUE = "#00e5ff"
+_GLASS_BG = "rgba(17, 24, 39, 0.55)"
+_GLASS_BORDER = "rgba(255, 255, 255, 0.06)"
+_SURFACE_1 = "rgba(17, 24, 39, 0.4)"   # lightest glass layer
+_SURFACE_2 = "rgba(17, 24, 39, 0.6)"   # mid glass layer
+_SURFACE_3 = "rgba(10, 14, 23, 0.85)"  # deepest layer (sidebar)
+
 st.markdown("""
 <style>
-    /* Clean tab styling */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    /* ══════════════════════ GLOBAL RESET ══════════════════════ */
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif !important;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+    .main .block-container {
+        padding: 2.5rem 3rem 3rem 3rem;
+        max-width: 1320px;
+    }
+    .stApp {
+        background: #0a0e17;
+        background-image:
+            radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0, 229, 255, 0.03) 0%, transparent 60%),
+            radial-gradient(ellipse 60% 40% at 80% 100%, rgba(57, 255, 20, 0.02) 0%, transparent 50%);
+    }
+
+    /* ══════════════════════ SIDEBAR — Spotify dark panel ══════════════════════ */
+    section[data-testid="stSidebar"] {
+        background: rgba(10, 14, 23, 0.92) !important;
+        backdrop-filter: blur(24px) saturate(180%);
+        -webkit-backdrop-filter: blur(24px) saturate(180%);
+        border-right: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    section[data-testid="stSidebar"] .stMarkdown p,
+    section[data-testid="stSidebar"] .stMarkdown li,
+    section[data-testid="stSidebar"] label {
+        color: #8b95a5 !important;
+        font-size: 0.82rem;
+        line-height: 1.6;
+    }
+    section[data-testid="stSidebar"] .stMarkdown h1,
+    section[data-testid="stSidebar"] .stMarkdown h2,
+    section[data-testid="stSidebar"] .stMarkdown h3 {
+        color: #e2e8f0 !important;
+        font-size: 0.75rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.1em !important;
+        margin-top: 1.5rem !important;
+        margin-bottom: 0.5rem !important;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    /* ══════════════════════ TABS — Discord-style clear categories ══════════════════════ */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        background: rgba(17, 24, 39, 0.35);
+        border-radius: 10px;
+        padding: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+    }
     .stTabs [data-baseweb="tab"] {
         padding: 8px 20px;
-        font-weight: 500;
-    }
-    /* Compact metrics */
-    [data-testid="stMetric"] {
-        background: #f8f9fa;
+        font-weight: 600;
+        font-size: 0.8rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #5b6478 !important;
         border-radius: 8px;
-        padding: 10px 12px;
-        border: 1px solid #e9ecef;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid transparent;
     }
-    [data-testid="stMetric"] label { font-size: 0.75rem; color: #6c757d; }
-    [data-testid="stMetric"] [data-testid="stMetricValue"] { font-size: 1.1rem; }
-    /* Cleaner expanders */
-    .streamlit-expanderHeader { font-weight: 600; font-size: 0.9rem; }
-    /* Sidebar cleanup */
-    section[data-testid="stSidebar"] { background: #fafafa; }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #c8d0dc !important;
+        background: rgba(255, 255, 255, 0.03);
+    }
+    .stTabs [aria-selected="true"] {
+        color: #00e5ff !important;
+        background: rgba(0, 229, 255, 0.06) !important;
+        border: 1px solid rgba(0, 229, 255, 0.15) !important;
+        box-shadow: 0 0 12px rgba(0, 229, 255, 0.06);
+    }
+
+    /* ══════════════════════ METRIC CARDS — Monzo financial cards ══════════════════════ */
+    [data-testid="stMetric"] {
+        background: rgba(17, 24, 39, 0.5) !important;
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        border-radius: 16px !important;
+        padding: 20px 22px 16px 22px !important;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+    [data-testid="stMetric"]::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.3), transparent);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 229, 255, 0.05);
+        border-color: rgba(0, 229, 255, 0.1) !important;
+    }
+    [data-testid="stMetric"]:hover::before {
+        opacity: 1;
+    }
+    [data-testid="stMetric"] label {
+        font-size: 0.65rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.1em !important;
+        text-transform: uppercase !important;
+        color: #5b6478 !important;
+        margin-bottom: 4px !important;
+    }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        font-size: 1.6rem !important;
+        font-weight: 800 !important;
+        color: #f0f2f5 !important;
+        letter-spacing: -0.03em;
+        line-height: 1.2;
+    }
+    [data-testid="stMetric"] [data-testid="stMetricDelta"] {
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+    }
+
+    /* ══════════════════════ BUTTONS — clean with subtle glow ══════════════════════ */
+    .stButton > button {
+        background: rgba(0, 229, 255, 0.08) !important;
+        border: 1px solid rgba(0, 229, 255, 0.2) !important;
+        color: #00e5ff !important;
+        font-weight: 600 !important;
+        font-size: 0.82rem !important;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        border-radius: 10px !important;
+        padding: 10px 28px !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    .stButton > button:hover {
+        background: rgba(0, 229, 255, 0.15) !important;
+        box-shadow: 0 0 24px rgba(0, 229, 255, 0.12) !important;
+        transform: translateY(-1px);
+        border-color: rgba(0, 229, 255, 0.35) !important;
+    }
+    .stButton > button:active {
+        transform: translateY(0px) scale(0.98);
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(0, 229, 255, 0.08)) !important;
+        border: 1px solid rgba(0, 229, 255, 0.3) !important;
+    }
+
+    /* ══════════════════════ INPUTS — minimal, Zara-clean ══════════════════════ */
+    .stSelectbox > div > div,
+    .stNumberInput > div > div > input,
+    .stTextInput > div > div > input {
+        background: rgba(17, 24, 39, 0.45) !important;
+        border: 1px solid rgba(255, 255, 255, 0.07) !important;
+        border-radius: 10px !important;
+        color: #e2e8f0 !important;
+        transition: border-color 0.2s ease;
+    }
+    .stSelectbox > div > div:hover,
+    .stNumberInput > div > div > input:hover,
+    .stTextInput > div > div > input:hover {
+        border-color: rgba(0, 229, 255, 0.2) !important;
+    }
+    .stSelectbox > div > div:focus-within,
+    .stNumberInput > div > div > input:focus,
+    .stTextInput > div > div > input:focus {
+        border-color: rgba(0, 229, 255, 0.4) !important;
+        box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.08) !important;
+    }
+    .stSelectbox label,
+    .stNumberInput label,
+    .stTextInput label,
+    .stMultiSelect label {
+        font-size: 0.7rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        color: #5b6478 !important;
+    }
+
+    /* ══════════════════════ DATAFRAMES — clean surface ══════════════════════ */
+    [data-testid="stDataFrame"] {
+        background: rgba(17, 24, 39, 0.35) !important;
+        border-radius: 14px !important;
+        border: 1px solid rgba(255, 255, 255, 0.04) !important;
+        overflow: hidden;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    /* ══════════════════════ EXPANDERS — subtle accordion ══════════════════════ */
+    .streamlit-expanderHeader {
+        font-weight: 600 !important;
+        font-size: 0.8rem !important;
+        letter-spacing: 0.03em;
+        color: #8b95a5 !important;
+        background: rgba(17, 24, 39, 0.3) !important;
+        border-radius: 10px !important;
+        border: 1px solid rgba(255, 255, 255, 0.04) !important;
+        transition: all 0.25s ease;
+    }
+    .streamlit-expanderHeader:hover {
+        color: #c8d0dc !important;
+        background: rgba(17, 24, 39, 0.5) !important;
+        border-color: rgba(255, 255, 255, 0.08) !important;
+    }
+
+    /* ══════════════════════ SECTION DIVIDERS — Zara minimal ══════════════════════ */
+    hr {
+        border: none !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+        margin: 2rem 0 !important;
+    }
+
+    /* ══════════════════════ TYPOGRAPHY ══════════════════════ */
+    .stMarkdown h1 {
+        color: #f0f2f5 !important;
+        font-weight: 800 !important;
+        font-size: 1.8rem !important;
+        letter-spacing: -0.03em;
+        line-height: 1.2;
+    }
+    .stMarkdown h2 {
+        color: #e2e8f0 !important;
+        font-weight: 700 !important;
+        font-size: 1.3rem !important;
+        letter-spacing: -0.02em;
+    }
+    .stMarkdown h3 {
+        color: #c8d0dc !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        letter-spacing: -0.01em;
+    }
+    .stMarkdown p, .stMarkdown li {
+        color: #9ca3af !important;
+        line-height: 1.65;
+    }
+    .stMarkdown strong {
+        color: #e2e8f0 !important;
+        font-weight: 600;
+    }
+
+    /* ══════════════════════ ALERTS — soft glow ══════════════════════ */
+    .stAlert {
+        background: rgba(17, 24, 39, 0.45) !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
+        backdrop-filter: blur(12px);
+    }
+
+    /* ══════════════════════ DOWNLOAD BUTTON ══════════════════════ */
+    .stDownloadButton > button {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        color: #6b7280 !important;
+        border-radius: 8px !important;
+        font-size: 0.75rem !important;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        transition: all 0.2s ease;
+    }
+    .stDownloadButton > button:hover {
+        background: rgba(255, 255, 255, 0.06) !important;
+        color: #c8d0dc !important;
+        border-color: rgba(255, 255, 255, 0.12) !important;
+    }
+
+    /* ══════════════════════ PROGRESS BAR — gradient accent ══════════════════════ */
+    .stProgress > div > div > div > div {
+        background: linear-gradient(90deg, #00e5ff, #39ff14) !important;
+        border-radius: 4px;
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+    }
+
+    /* ══════════════════════ MULTISELECT CHIPS ══════════════════════ */
+    span[data-baseweb="tag"] {
+        background: rgba(0, 229, 255, 0.1) !important;
+        border: 1px solid rgba(0, 229, 255, 0.2) !important;
+        border-radius: 6px !important;
+        color: #00e5ff !important;
+        font-size: 0.75rem !important;
+    }
+
+    /* ══════════════════════ CAPTIONS ══════════════════════ */
+    .stCaption, [data-testid="stCaptionContainer"] {
+        color: #3d4657 !important;
+        font-size: 0.72rem !important;
+        letter-spacing: 0.01em;
+    }
+
+    /* ══════════════════════ SCROLLBAR — minimal ══════════════════════ */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.12); }
+
+    /* ══════════════════════ CUSTOM SECTION HEADERS ══════════════════════ */
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 1.5rem 0 1rem 0;
+    }
+    .section-header .label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #5b6478;
+    }
+    .section-header .line {
+        flex: 1;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .section-header .accent {
+        color: #00e5ff;
+    }
+
+    /* ══════════════════════ RADIO BUTTONS — pill style ══════════════════════ */
+    .stRadio > div {
+        gap: 4px !important;
+    }
+    .stRadio label {
+        font-size: 0.75rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.04em !important;
+        color: #5b6478 !important;
+        text-transform: uppercase !important;
+    }
+
+    /* ══════════════════════ SPINNER ══════════════════════ */
+    .stSpinner > div {
+        border-top-color: #00e5ff !important;
+    }
+
+    /* ══════════════════════ TOAST / NOTIFICATIONS ══════════════════════ */
+    [data-testid="stToast"] {
+        background: rgba(17, 24, 39, 0.9) !important;
+        border: 1px solid rgba(0, 229, 255, 0.15) !important;
+        border-radius: 12px !important;
+        backdrop-filter: blur(20px);
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Plotly Dark Theme ──
+PLOTLY_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(17, 24, 39, 0.2)",
+    font=dict(family="Inter, SF Pro Display, sans-serif", color="#8b95a5", size=12),
+    xaxis=dict(gridcolor="rgba(255,255,255,0.03)", zerolinecolor="rgba(255,255,255,0.05)"),
+    yaxis=dict(gridcolor="rgba(255,255,255,0.03)", zerolinecolor="rgba(255,255,255,0.05)"),
+    margin=dict(l=40, r=20, t=30, b=40),
+    legend=dict(font=dict(color="#8b95a5", size=11), bgcolor="rgba(0,0,0,0)"),
+)
+
+
+def _section_header(label: str, accent: bool = False):
+    """Discord-style section header with subtle line."""
+    cls = "accent" if accent else ""
+    st.markdown(
+        f'<div class="section-header">'
+        f'<span class="label {cls}">{label}</span>'
+        f'<span class="line"></span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 # Use DATA_DIR env var for persistent storage (Render Disk mount)
 # Locally defaults to "." so nothing changes for local dev
@@ -338,10 +700,10 @@ def build_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         low=df["Low"],
         close=df["Close"],
         name="OHLC",
-        increasing_line_color="#4ade80", # Brighter green
-        decreasing_line_color="#f87171", # Brighter red
-        increasing_fillcolor="#4ade80",
-        decreasing_fillcolor="#f87171",
+        increasing_line_color="#39ff14",
+        decreasing_line_color="#ff2e63",
+        increasing_fillcolor="rgba(57, 255, 20, 0.6)",
+        decreasing_fillcolor="rgba(255, 46, 99, 0.6)",
     ))
 
     fig.add_trace(go.Scatter(
@@ -349,34 +711,32 @@ def build_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         y=df["EMA20"],
         mode="lines",
         name="EMA 20",
-        line=dict(color="#60a5fa", width=2.5), # Thicker brighter blue
+        line=dict(color="#60a5fa", width=2.5),
     ))
 
     fig.update_layout(
-        title=go.layout.Title(text=f"{ticker} · 5-Min Chart (1 Day)", font=dict(size=20, color="#4a2311")),
-        paper_bgcolor="#ffebd2", # Lion King Peach
-        plot_bgcolor="#ffebd2",
+        title=go.layout.Title(text=f"{ticker} · 5-Min", font=dict(size=13, color="#8b95a5", family="Inter, sans-serif")),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(17, 24, 39, 0.2)",
+        font=dict(family="Inter, SF Pro Display, sans-serif", color="#8b95a5"),
         xaxis=go.layout.XAxis(
             rangeslider=dict(visible=False),
             type="linear",
-            title=go.layout.xaxis.Title(text="Bar Number (5-Min)", font=dict(size=14, color="#4a2311")),
-            gridcolor="#ffcc99", # Soft amber gridlines
-            dtick=5, # Show a large number every 5 bars
-            minor=dict(
-                dtick=1, # Draw a faint gridline for every single bar (1-78)
-                gridcolor="rgba(255, 204, 153, 0.4)",
-            ),
+            title=go.layout.xaxis.Title(text="Bar #", font=dict(size=11, color="#5b6478")),
+            gridcolor="rgba(255,255,255,0.03)",
+            dtick=5,
+            minor=dict(dtick=1, gridcolor="rgba(255,255,255,0.015)"),
             tick0=1,
-            tickfont=dict(size=12, color="#7c4a2a"), # Rich lighter brown
+            tickfont=dict(size=10, color="#5b6478"),
         ),
         yaxis=go.layout.YAxis(
-            gridcolor="#ffcc99", 
-            title=go.layout.yaxis.Title(text="Price", font=dict(size=14, color="#4a2311")),
-            tickfont=dict(size=12, color="#7c4a2a"),
+            gridcolor="rgba(255,255,255,0.03)",
+            title=go.layout.yaxis.Title(text="Price", font=dict(size=11, color="#5b6478")),
+            tickfont=dict(size=10, color="#5b6478"),
         ),
-        legend=go.layout.Legend(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=14, color="#4a2311")),
-        margin=go.layout.Margin(l=10, r=10, t=60, b=10),
-        height=600, # Taller chart
+        legend=go.layout.Legend(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#8b95a5"), bgcolor="rgba(0,0,0,0)"),
+        margin=go.layout.Margin(l=10, r=10, t=50, b=10),
+        height=560,
         autosize=True,
     )
 
@@ -419,7 +779,7 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     # Highlight trade range with a shaded rectangle
     fig.add_vrect(
         x0=entry_x - 0.5, x1=exit_x + 0.5,
-        fillcolor="rgba(100, 149, 237, 0.15)",
+        fillcolor="rgba(0, 229, 255, 0.06)",
         line_width=0,
         layer="below",
     )
@@ -432,10 +792,10 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         low=window_df["Low"],
         close=window_df["Close"],
         name="OHLC",
-        increasing_line_color="#4ade80",
-        decreasing_line_color="#f87171",
-        increasing_fillcolor="#4ade80",
-        decreasing_fillcolor="#f87171",
+        increasing_line_color="#39ff14",
+        decreasing_line_color="#ff2e63",
+        increasing_fillcolor="rgba(57, 255, 20, 0.6)",
+        decreasing_fillcolor="rgba(255, 46, 99, 0.6)",
     ))
 
     # EMA if available
@@ -453,8 +813,8 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         fig.add_trace(go.Candlestick(
             x=[setup_x if is_daily else x_vals.iloc[setup_x]],
             open=[sb["Open"]], high=[sb["High"]], low=[sb["Low"]], close=[sb["Close"]],
-            increasing_line_color="#9C27B0", decreasing_line_color="#9C27B0",
-            increasing_fillcolor="#9C27B0", decreasing_fillcolor="#9C27B0",
+            increasing_line_color="#a855f7", decreasing_line_color="#a855f7",
+            increasing_fillcolor="rgba(168, 85, 247, 0.7)", decreasing_fillcolor="rgba(168, 85, 247, 0.7)",
             name="Setup Bar", showlegend=True,
         ))
 
@@ -464,8 +824,8 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         fig.add_trace(go.Candlestick(
             x=[entry_x if is_daily else x_vals.iloc[entry_x]],
             open=[eb["Open"]], high=[eb["High"]], low=[eb["Low"]], close=[eb["Close"]],
-            increasing_line_color="#FFD700", decreasing_line_color="#FFD700",
-            increasing_fillcolor="#FFD700", decreasing_fillcolor="#FFD700",
+            increasing_line_color="#00e5ff", decreasing_line_color="#00e5ff",
+            increasing_fillcolor="rgba(0, 229, 255, 0.7)", decreasing_fillcolor="rgba(0, 229, 255, 0.7)",
             name="Entry Bar", showlegend=True,
         ))
 
@@ -476,7 +836,7 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     fig.add_trace(go.Scatter(
         x=[entry_x - 0.5, exit_x + 0.5],
         y=[trade.stop_loss, trade.stop_loss],
-        mode="lines", line=dict(color="#FF1744", width=1.5, dash="dash"),
+        mode="lines", line=dict(color="#ff2e63", width=1.5, dash="dash"),
         name="Stop Loss", showlegend=True,
     ))
 
@@ -496,7 +856,7 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     fig.add_trace(go.Scatter(
         x=[entry_x - 0.5, exit_x + 0.5],
         y=[target, target],
-        mode="lines", line=dict(color="#00C853", width=1.5, dash="dash"),
+        mode="lines", line=dict(color="#39ff14", width=1.5, dash="dash"),
         name=target_label, showlegend=True,
     ))
     # Also show swing target as a lighter line if different from scalp
@@ -504,27 +864,29 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         fig.add_trace(go.Scatter(
             x=[entry_x - 0.5, exit_x + 0.5],
             y=[trade.swing_target, trade.swing_target],
-            mode="lines", line=dict(color="#00C853", width=1, dash="dot"),
+            mode="lines", line=dict(color="#39ff14", width=1, dash="dot"),
             name="Swing Target", showlegend=True,
         ))
 
     fig.update_layout(
-        title=chart_title,
-        paper_bgcolor="#ffebd2",
-        plot_bgcolor="#ffebd2",
+        title=dict(text=chart_title, font=dict(color="#e8eaed", size=14)),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(17, 24, 39, 0.3)",
+        font=dict(family="Inter, SF Pro Display, sans-serif", color="#9ca3af"),
         xaxis=dict(
             rangeslider=dict(visible=False),
             type="linear",
             title=x_title,
-            gridcolor="#ffcc99",
-            tickfont=dict(size=11, color="#7c4a2a"),
+            gridcolor="rgba(255,255,255,0.04)",
+            tickfont=dict(size=11, color="#6b7280"),
         ),
         yaxis=dict(
-            gridcolor="#ffcc99",
+            gridcolor="rgba(255,255,255,0.04)",
             title="Price",
-            tickfont=dict(size=11, color="#7c4a2a"),
+            tickfont=dict(size=11, color="#6b7280"),
         ),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                    font=dict(color="#9ca3af", size=11), bgcolor="rgba(0,0,0,0)"),
         margin=dict(l=10, r=10, t=50, b=10),
         height=400,
         autosize=True,
@@ -585,11 +947,12 @@ def _compute_group_stats(group_trades: list) -> dict:
 
 
 def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"):
-    """Render setup performance with a summary table and per-setup expandable detail sections."""
+    """Render setup ranking table (test_confidence.py style) with lean per-setup expanders."""
     if not trades:
         return
 
     from collections import defaultdict
+    from backtester import SETUP_CONFIG
 
     # Group trades by normalized setup name
     trades_by_group = defaultdict(list)
@@ -607,67 +970,68 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
         if gs:
             group_stats[group] = gs
 
-    # Summary table
+    # Build ranking table with R:R column — keep numeric for sorting
     rows = []
     for name, s in group_stats.items():
-        expectancy = s["avg_pnl"]  # avg P&L per trade = expectancy
+        expectancy = s["avg_pnl"]
+        cfg = SETUP_CONFIG.get(name, {})
+        rr = cfg.get("rr", None)
         rows.append({
             "Setup": name,
             "N": s["count"],
-            "Win%": f"{s['win_rate']:.0%}",
+            "Win%": round(s["win_rate"] * 100),
+            "R:R": f"{rr}:1" if rr is not None else "—",
+            "EV(R)": round(s["avg_r"], 2),
             "P&L": round(s["pnl"], 2),
             "Exp": round(expectancy, 2),
-            "Avg R": round(s["avg_r"], 2),
             "PF": round(s["profit_factor"], 2) if s["profit_factor"] != float('inf') else 999.0,
+            "_sort_exp": expectancy,  # raw float for reliable sorting
         })
 
-    perf_df = pd.DataFrame(rows).sort_values("Exp", ascending=False).reset_index(drop=True)
-    st.markdown(f"**Setup Performance** -- {len(group_stats)} setup groups, {len(trades)} total trades")
+    perf_df = pd.DataFrame(rows).sort_values("_sort_exp", ascending=False).reset_index(drop=True)
+    perf_df = perf_df.drop(columns=["_sort_exp"])  # hide sort column
+    st.caption(f"{len(group_stats)} setups across {len(trades)} trades")
 
     def _color_by_expectancy(row):
         val = row.get("Exp", 0)
+        if isinstance(val, str):
+            try:
+                val = float(val)
+            except (ValueError, TypeError):
+                val = 0
         if val > 0:
-            return ["background-color: #e8f5e9"] * len(row)  # green
+            return ["background-color: rgba(57, 255, 20, 0.08); color: #d1d5db"] * len(row)
         elif val < 0:
-            return ["background-color: #ffebee"] * len(row)  # red
-        return [""] * len(row)
+            return ["background-color: rgba(255, 46, 99, 0.08); color: #d1d5db"] * len(row)
+        return ["color: #d1d5db"] * len(row)
+
+    # Format numeric columns for clean display
+    format_dict = {
+        "Win%": "{:.0f}%",
+        "EV(R)": "{:+.2f}",
+        "P&L": "${:+,.2f}",
+        "Exp": "${:+.2f}",
+        "PF": "{:.2f}",
+    }
 
     st.dataframe(
-        perf_df.style.apply(_color_by_expectancy, axis=1),
+        perf_df.style.apply(_color_by_expectancy, axis=1).format(format_dict),
         width="stretch", hide_index=True, key=f"{key_prefix}_setup_perf",
     )
 
-    # Per-group expanders sorted by P&L
+    # Per-group expanders (lean: direction breakdown + cum P&L chart only)
     sorted_groups = sorted(group_stats.keys(), key=lambda n: group_stats[n]["pnl"], reverse=True)
 
     for group_name in sorted_groups:
         ss = group_stats[group_name]
         st_trades = trades_by_group[group_name]
         pnl_sign = "+" if ss["pnl"] >= 0 else ""
-        label = f"{group_name}  --  {ss['count']} trades, {pnl_sign}${ss['pnl']:.2f} P&L, {ss['win_rate']:.0%} win rate"
+        label = f"{group_name} — {ss['count']} trades, {pnl_sign}${ss['pnl']:.2f}, {ss['win_rate']:.0%} WR"
 
-        # Safe key: strip special chars
         safe_key = group_name.replace(" ", "_").replace("(", "").replace(")", "").replace(":", "").replace("+", "")
 
         with st.expander(label, expanded=False):
-            # Show which raw setup names are in this group
-            raw_names = sorted(set(t.setup_name for t in st_trades))
-            if len(raw_names) > 1:
-                st.caption("Includes: " + ", ".join(raw_names))
-
-            # Metrics row — 3 col for mobile
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Trades", ss["count"])
-            c2.metric("Win%", f"{ss['win_rate']:.0%}")
-            c3.metric("P&L", f"${ss['pnl']:.2f}")
-
-            c4, c5, c6 = st.columns(3)
-            c4.metric("Exp", f"${ss['avg_pnl']:.2f}")
-            c5.metric("Avg R", f"{ss['avg_r']:.2f}")
-            pf_val = f"{ss['profit_factor']:.2f}" if ss['profit_factor'] != float('inf') else "Inf"
-            c6.metric("PF", pf_val)
-
-            # Direction breakdown for this setup
+            # Direction breakdown
             longs = [t for t in st_trades if t.direction == "Long"]
             shorts = [t for t in st_trades if t.direction == "Short"]
             if longs or shorts:
@@ -681,45 +1045,31 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
                     dir_rows.append({
                         "Direction": dir_name,
                         "Trades": len(dir_trades),
-                        "Wins": d_wins,
-                        "Win %": f"{d_wr:.0%}",
+                        "Win%": f"{d_wr:.0%}",
                         "P&L": round(d_pnl, 2),
                     })
                 if dir_rows:
-                    st.markdown("**By Direction**")
                     st.dataframe(pd.DataFrame(dir_rows), width="stretch", hide_index=True,
                                  key=f"{key_prefix}_grp_{safe_key}_dir")
 
-            # Cumulative P&L mini-chart for this setup
+            # Cumulative P&L mini-chart
             if len(st_trades) >= 2:
                 cum_pnl = []
                 running = 0
                 for t in st_trades:
                     running += t.pnl
                     cum_pnl.append(round(running, 2))
+                _color = _CYBER_LIME if cum_pnl[-1] >= 0 else _ELECTRIC_CRIMSON
                 fig_cum = go.Figure()
                 fig_cum.add_trace(go.Scatter(
                     x=list(range(1, len(cum_pnl) + 1)), y=cum_pnl,
-                    mode="lines+markers", line=dict(color="#00C853" if cum_pnl[-1] >= 0 else "#FF1744", width=2),
-                    marker=dict(size=4), name="Cum P&L",
+                    mode="lines+markers", line=dict(color=_color, width=2),
+                    marker=dict(size=3, color=_color), name="Cum P&L",
                 ))
-                fig_cum.add_hline(y=0, line_dash="dash", line_color="gray")
-                fig_cum.update_layout(
-                    xaxis_title="Trade #", yaxis_title="Cumulative P&L ($/sh)",
-                    height=220, margin=dict(l=40, r=20, t=10, b=40),
-                )
+                fig_cum.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.1)")
+                fig_cum.update_layout(**PLOTLY_LAYOUT, height=200,
+                    xaxis_title="Trade #", yaxis_title="Cum P&L ($/sh)")
                 st.plotly_chart(fig_cum, use_container_width=True, key=f"{key_prefix}_grp_{safe_key}_cum")
-
-            # Exit reason breakdown
-            exit_counts = defaultdict(int)
-            for t in st_trades:
-                exit_counts[t.exit_reason or "unknown"] += 1
-            if exit_counts:
-                er_rows = [{"Exit Reason": k, "Count": v, "%": f"{v / len(st_trades):.0%}"}
-                           for k, v in sorted(exit_counts.items(), key=lambda x: -x[1])]
-                st.markdown("**Exit Reasons**")
-                st.dataframe(pd.DataFrame(er_rows), width="stretch", hide_index=True,
-                             key=f"{key_prefix}_grp_{safe_key}_exit")
 
 
 def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
@@ -861,12 +1211,12 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             if len(w_trades):
                 fig_mae.add_trace(go.Scatter(
                     x=w_trades["mae_r"], y=w_trades["mfe_r"],
-                    mode="markers", marker=dict(color="#00C853", size=8, opacity=0.7), name="Winners",
+                    mode="markers", marker=dict(color="#39ff14", size=8, opacity=0.7), name="Winners",
                 ))
             if len(l_trades):
                 fig_mae.add_trace(go.Scatter(
                     x=l_trades["mae_r"], y=l_trades["mfe_r"],
-                    mode="markers", marker=dict(color="#FF1744", size=8, opacity=0.7), name="Losers",
+                    mode="markers", marker=dict(color="#ff2e63", size=8, opacity=0.7), name="Losers",
                 ))
             max_v = max(filtered["mae_r"].max(), filtered["mfe_r"].max(), 1) * 1.1
             fig_mae.add_trace(go.Scatter(x=[0, max_v], y=[0, max_v], mode="lines",
@@ -879,9 +1229,9 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
         if len(filtered) > 3:
             fig_mae_hist = go.Figure()
             fig_mae_hist.add_trace(go.Histogram(x=filtered["mae_r"], nbinsx=20, name="MAE (R)",
-                                                 marker_color="#FF1744", opacity=0.7))
+                                                 marker_color="#ff2e63", opacity=0.7))
             fig_mae_hist.add_trace(go.Histogram(x=filtered["mfe_r"], nbinsx=20, name="MFE (R)",
-                                                 marker_color="#00C853", opacity=0.7))
+                                                 marker_color="#39ff14", opacity=0.7))
             fig_mae_hist.update_layout(barmode="overlay", xaxis_title="R-Multiple", yaxis_title="Count",
                                         height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_mae_hist, use_container_width=True, key=f"{key_prefix}_mae_hist")
@@ -893,9 +1243,9 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
         if len(filtered) > 3:
             fig_pnl = go.Figure()
             fig_pnl.add_trace(go.Histogram(x=filtered["pnl"], nbinsx=30, name="P&L",
-                                            marker_color="#2196F3", opacity=0.8))
-            fig_pnl.add_vline(x=0, line_dash="dash", line_color="gray")
-            fig_pnl.add_vline(x=filtered["pnl"].mean(), line_dash="dot", line_color="#FF9800",
+                                            marker_color="#00e5ff", opacity=0.8))
+            fig_pnl.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.12)")
+            fig_pnl.add_vline(x=filtered["pnl"].mean(), line_dash="dot", line_color="#f59e0b",
                                annotation_text=f"Avg: ${filtered['pnl'].mean():.2f}")
             fig_pnl.update_layout(xaxis_title="P&L ($/share)", yaxis_title="Count",
                                    height=250, margin=dict(l=40, r=20, t=10, b=40))
@@ -905,8 +1255,8 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
         if len(filtered) > 3:
             fig_r = go.Figure()
             fig_r.add_trace(go.Histogram(x=filtered["r"], nbinsx=30, name="R",
-                                          marker_color="#9C27B0", opacity=0.8))
-            fig_r.add_vline(x=0, line_dash="dash", line_color="gray")
+                                          marker_color="#a855f7", opacity=0.8))
+            fig_r.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.12)")
             fig_r.update_layout(xaxis_title="R-Multiple", yaxis_title="Count",
                                  height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_r, use_container_width=True, key=f"{key_prefix}_r_dist")
@@ -1010,7 +1360,7 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
                     z=pivot.values,
                     x=[f"W{w}" for w in pivot.columns],
                     y=["Mon", "Tue", "Wed", "Thu", "Fri"],
-                    colorscale=[[0, "#FF1744"], [0.5, "#ffebd2"], [1, "#00C853"]],
+                    colorscale=[[0, "#ff2e63"], [0.5, "#111827"], [1, "#39ff14"]],
                     zmid=0, zmin=-max_abs, zmax=max_abs,
                     text=pivot.values.round(2),
                     texttemplate="%{text}",
@@ -1056,10 +1406,10 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             l_bh = filtered.loc[~filtered["winner"], "bars_held"]
             if len(w_bh):
                 fig_bh.add_trace(go.Histogram(x=w_bh, name="Winners",
-                                               marker_color="#00C853", opacity=0.7))
+                                               marker_color="#39ff14", opacity=0.7))
             if len(l_bh):
                 fig_bh.add_trace(go.Histogram(x=l_bh, name="Losers",
-                                               marker_color="#FF1744", opacity=0.7))
+                                               marker_color="#ff2e63", opacity=0.7))
             fig_bh.update_layout(barmode="overlay", xaxis_title="Bars Held", yaxis_title="Count",
                                   height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_bh, use_container_width=True, key=f"{key_prefix}_bh_dist")
@@ -1112,8 +1462,8 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
                 # Equity distribution histogram
                 fig_mc = go.Figure()
                 fig_mc.add_trace(go.Histogram(x=mc["all_final_equities"], nbinsx=50,
-                                               marker_color="#2196F3", name="Final Equity"))
-                fig_mc.add_vline(x=10000, line_dash="dash", line_color="gray",
+                                               marker_color="#00e5ff", name="Final Equity"))
+                fig_mc.add_vline(x=10000, line_dash="dash", line_color="rgba(255,255,255,0.12)",
                                   annotation_text="$10,000 start")
                 fig_mc.update_layout(xaxis_title="Final Equity ($)", yaxis_title="Frequency",
                                       height=280, margin=dict(l=40, r=20, t=10, b=40))
@@ -1178,9 +1528,9 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             fig_rs = go.Figure()
             fig_rs.add_trace(go.Scatter(
                 x=list(range(1, len(rolling_sharpe) + 1)), y=rolling_sharpe,
-                mode="lines", line=dict(color="#2196F3", width=2), name=f"Rolling Sharpe ({window})",
+                mode="lines", line=dict(color="#00e5ff", width=2), name=f"Rolling Sharpe ({window})",
             ))
-            fig_rs.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig_rs.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.12)")
             fig_rs.update_layout(xaxis_title="Trade #", yaxis_title="Sharpe Ratio",
                                   height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_rs, use_container_width=True, key=f"{key_prefix}_rolling_sharpe")
@@ -1190,9 +1540,9 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             fig_rwr = go.Figure()
             fig_rwr.add_trace(go.Scatter(
                 x=list(range(1, len(rolling_wr) + 1)), y=rolling_wr * 100,
-                mode="lines", line=dict(color="#00C853", width=2), name=f"Rolling Win Rate ({window})",
+                mode="lines", line=dict(color="#39ff14", width=2), name=f"Rolling Win Rate ({window})",
             ))
-            fig_rwr.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="50%")
+            fig_rwr.add_hline(y=50, line_dash="dash", line_color="rgba(255,255,255,0.12)", annotation_text="50%")
             fig_rwr.update_layout(xaxis_title="Trade #", yaxis_title="Win Rate (%)",
                                    height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_rwr, use_container_width=True, key=f"{key_prefix}_rolling_wr")
@@ -1220,7 +1570,7 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             fig_dda = go.Figure()
             fig_dda.add_trace(go.Scatter(
                 x=list(range(1, len(dd_series) + 1)), y=dd_series,
-                mode="lines", fill="tozeroy", line=dict(color="#FF1744", width=1),
+                mode="lines", fill="tozeroy", line=dict(color="#ff2e63", width=1),
                 fillcolor="rgba(255,23,68,0.3)", name="Drawdown",
             ))
             fig_dda.update_layout(xaxis_title="Trade #", yaxis_title="Drawdown ($/sh)",
@@ -1694,31 +2044,28 @@ def check_prefetch():
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("## BPA Bot")
-        st.caption("Al Brooks Price Action Analysis")
-        st.markdown("---")
+        st.markdown("### BPA Bot")
+        st.caption("Price Action Analysis Engine")
 
         # Analysis mode toggle
         analysis_mode = st.radio(
-            "Analysis Engine",
+            "Engine",
             ["Algo (Instant)", "Gemini (LLM)"],
             index=0,
+            horizontal=True,
             help="Algo runs locally in ~50ms. Gemini uses the LLM API (5-15s).",
         )
         st.session_state["analysis_mode"] = analysis_mode
-        st.markdown("---")
 
         count = len(load_training_csv())
-        st.metric("Training Progress", f"{count} / 100")
+        st.metric("Training", f"{count} / 100")
         st.progress(min(count / 100, 1.0))
-        st.markdown("---")
 
         source = _init_data_source_v2()
-        st.caption(f"Data: {source.name()}")
-        
+        st.caption(f"Source: {source.name()}")
+
         # ── Ask the Bot (Teacher Workflow) ──
-        st.markdown("---")
-        st.subheader("Ask the Bot")
+        st.markdown("### Chat")
 
         # Initialize chat history if missing
         if "chat_history" not in st.session_state:
@@ -1811,10 +2158,10 @@ def render_training_lab():
     # ── Header Dropdowns ──
     top_col1, top_col2 = st.columns(2)
     with top_col1:
-        st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Day Type</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #e8eaed; margin-bottom: 0px;'>Day Type</h3>", unsafe_allow_html=True)
         day_type = st.selectbox("Day Type", dyn_day_opts, index=0, key=f"day_type_{ticker}", label_visibility="collapsed")
     with top_col2:
-        st.markdown("<h3 style='text-align: center; color: #4a2311; margin-bottom: 0px;'>Market Cycle</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #e8eaed; margin-bottom: 0px;'>Market Cycle</h3>", unsafe_allow_html=True)
         market_cycle = st.selectbox("Market Cycle", dyn_cycle_opts, index=0, key=f"market_cycle_{ticker}", label_visibility="collapsed")
 
     # PHASE 1: Rebuild base chart clean every time to support toggles
@@ -1886,8 +2233,8 @@ def render_training_lab():
     with oc2:
         outcome_colors = {
             "Good Trade, Good Result": "#00C853",
-            "Good Trade, Bad Result": "#FF9800",
-            "Bad Trade, Good Result": "#FF9800",
+            "Good Trade, Bad Result": "#f59e0b",
+            "Bad Trade, Good Result": "#f59e0b",
             "Bad Trade, Bad Result": "#FF1744",
             "N/A — No Trade Taken": "#9E9E9E",
         }
@@ -2379,11 +2726,13 @@ def render_backtest():
     with c2:
         bt_days = st.number_input("Days", min_value=1, max_value=9999, value=30, key="bt_days")
 
-    sc1, sc2 = st.columns(2)
+    sc1, sc2, sc3 = st.columns(3)
     with sc1:
         bt_mode = st.selectbox("Setup", ["scalp", "swing"], key="bt_mode", help="Scalp = 1:1 R/R targets. Swing = 2:1 R/R targets.")
     with sc2:
         bt_trend = st.selectbox("Trend Filter", ["All", "With Trend", "Counter Trend"], key="bt_trend", help="Filter trades by whether they are in the direction of the trend (price vs EMA).")
+    with sc3:
+        bt_strategy = st.selectbox("Strategy", ["All Setups", "Profitable Only", "Global R:R"], key="bt_strategy", help="All Setups = all setups with optimized R:R. Profitable Only = only the 15 proven setups. Global R:R = all setups at uniform scalp/swing ratio.")
 
     run_btn = st.button("Run Backtest", key="bt_run", type="primary", use_container_width=True)
 
@@ -2464,7 +2813,9 @@ def render_backtest():
 
                 report = run_multi_day_backtest(daily_dfs, mode=bt_mode,
                                                slippage=bt_slippage, commission=bt_commission,
-                                               ticker=bt_ticker)
+                                               ticker=bt_ticker,
+                                               profitable_only=(bt_strategy == "Profitable Only"),
+                                               use_setup_config=(bt_strategy != "Global R:R"))
 
                 for t in report["trades"]:
                     t.ticker = bt_ticker
@@ -2523,17 +2874,15 @@ def render_backtest():
         return
 
     # ── Filters ──
-    st.markdown("---")
+    _section_header("Filters")
     setup_names_all = sorted(set(_normalize_setup_name(t.setup_name) for t in all_trades))
     cycle_names_all = sorted(set(getattr(t, "market_cycle", "") or "Unknown" for t in all_trades))
 
-    bf1, bf2 = st.columns(2)
+    bf1, bf2, bf3, bf4 = st.columns(4)
     with bf1:
         bt_setup_filter = st.multiselect("Setup", setup_names_all, default=[], key="bt_setup_filter")
     with bf2:
         bt_dir_filter = st.selectbox("Direction", ["All", "Long", "Short"], key="bt_dir_filter")
-
-    bf3, bf4 = st.columns(2)
     with bf3:
         bt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="bt_trend_filter")
     with bf4:
@@ -2564,51 +2913,46 @@ def render_backtest():
     s = _compute_summary(trades, st.session_state.get("bt_mode", "scalp"))
     filtered_curve = _build_equity_curve(trades)
 
-    # ── Summary metrics ──
+    # ── Summary metrics (Monzo-style compact row) ──
+    _section_header("Performance", accent=True)
     curve_df = pd.DataFrame(filtered_curve)
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
-    total_return = ((final_equity - 10000) / 10000) * 100
 
-    m1, m2, m3 = st.columns(3)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Trades", s["total_trades"])
     m2.metric("Win Rate", f"{s['win_rate']:.0%}")
-    m3.metric("Account", f"${final_equity:,.0f}")
+    _pnl = s['total_pnl']
+    m3.metric("Net P&L", f"${_pnl:+,.2f}")
+    m4.metric("Expectancy", f"${s['expectancy']:.2f}")
+    m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
+    m6.metric("Avg R", f"{s['avg_r_multiple']:+.2f}")
 
-    m4, m5, m6 = st.columns(3)
-    m4.metric("Return", f"{total_return:+.1f}%")
-    m5.metric("PF", f"{s['profit_factor']:.2f}")
-    m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
-
-    m7, m8, m9 = st.columns(3)
-    m7.metric("Avg Win", f"${s['avg_winner']:.2f}")
-    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}")
-    m9.metric("Expect", f"${s['expectancy']:.2f}")
-
-    m10, m11, m12 = st.columns(3)
-    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}")
-    m11.metric("Kelly", f"{s['kelly_pct']:.1f}%")
-    m12.metric("Bars", f"{s['avg_bars_held']:.0f}")
+    # ── Setup Ranking ──
+    _section_header("Setup Ranking")
+    render_setup_performance(s, trades, key_prefix="bt")
 
     # ── Equity curve ──
-    st.markdown("---")
+    _section_header("Equity Curve")
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines+markers", line=dict(color="#00C853", width=2), marker=dict(size=5), name="Account",
+        mode="lines", line=dict(color="rgba(0, 229, 255, 0.12)", width=12),
+        showlegend=False, hoverinfo="skip",
     ))
-    fig_eq.add_hline(y=10000, line_dash="dash", line_color="gray", annotation_text="$10,000 start")
-    fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="Account Balance ($)", height=300,
-                          margin=dict(l=40, r=20, t=20, b=40))
+    fig_eq.add_trace(go.Scatter(
+        x=curve_df["trade_num"], y=curve_df["equity"],
+        mode="lines+markers", line=dict(color="#00e5ff", width=2.5),
+        marker=dict(size=4, color="#00e5ff", line=dict(width=0)), name="Equity",
+    ))
+    fig_eq.add_hline(y=10000, line_dash="dot", line_color="rgba(255,255,255,0.15)",
+                      annotation_text="$10k", annotation_font_color="#4b5563")
+    fig_eq.update_layout(**PLOTLY_LAYOUT, height=300,
+                          xaxis_title="Trade #", yaxis_title="Account ($)")
     st.plotly_chart(fig_eq, use_container_width=True)
 
-    # ── Setup Performance ──
-    render_setup_performance(s, trades, key_prefix="bt")
-
-    # ── Full Analytics ──
-    render_analytics(trades, s, key_prefix="bt")
-
     # ── Trade log (clickable) ──
-    st.markdown("**Trade Log** -- select a row to view the chart")
+    _section_header("Trade Log")
+    st.caption("Click a row to view the chart")
     trade_df = trades_to_dataframe(trades)
     selection = st.dataframe(
         trade_df, width="stretch", hide_index=True,
@@ -2623,7 +2967,6 @@ def render_backtest():
             sel_trade = trades[idx]
             daily_dfs = st.session_state.get("bt_daily_dfs", {})
             used_ticker = st.session_state.get("bt_ticker_used", bt_selection)
-            # Find which day this trade belongs to by matching entry_time date
             trade_date = sel_trade.entry_time[:10] if sel_trade.entry_time else ""
             day_df = daily_dfs.get(trade_date)
             if day_df is not None and not day_df.empty:
@@ -2639,7 +2982,12 @@ def render_backtest():
                 st.caption("Chart data not available for this trade's date.")
 
     csv_data = trade_df.to_csv(index=False)
-    st.download_button("Download CSV", csv_data, f"backtest_{bt_selection}_{bt_mode}.csv", "text/csv")
+    st.download_button("Export CSV", csv_data, f"backtest_{bt_selection}_{bt_mode}.csv", "text/csv")
+
+    # ── Advanced Analytics (collapsed) ──
+    _section_header("Deep Dive")
+    with st.expander("Advanced Analytics", expanded=False):
+        render_analytics(trades, s, key_prefix="bt")
 
 
 # ─────────────────────────── DAILY BACKTEST TAB ──────────────────────────────
@@ -2654,11 +3002,13 @@ def render_backtest_daily():
     with c2:
         dt_years = st.selectbox("Period", ["2y", "5y", "10y", "20y", "max", "1y"], key="dt_period")
 
-    sc1, sc2 = st.columns(2)
+    sc1, sc2, sc3 = st.columns(3)
     with sc1:
         dt_mode = st.selectbox("Setup", ["swing", "scalp"], key="dt_mode", help="Swing = 2:1 R/R targets. Scalp = 1:1 R/R targets.")
     with sc2:
         dt_trend = st.selectbox("Trend Filter", ["All", "With Trend", "Counter Trend"], key="dt_trend", help="Filter trades by whether they are in the direction of the trend (price vs EMA).")
+    with sc3:
+        dt_strategy = st.selectbox("Strategy", ["All Setups", "Profitable Only", "Global R:R"], key="dt_strategy", help="All Setups = all setups with optimized R:R. Profitable Only = only the 15 proven setups. Global R:R = all setups at uniform scalp/swing ratio.")
 
     run_btn = st.button("Run Backtest", key="dt_run", type="primary", use_container_width=True)
 
@@ -2717,7 +3067,9 @@ def render_backtest_daily():
             report = run_daily_backtest(df, mode=dt_mode, hold_limit=dt_hold,
                                           min_bars_between_trades=dt_gap,
                                           slippage=dt_slippage, commission=dt_commission,
-                                          ticker=sym)
+                                          ticker=sym,
+                                          profitable_only=(dt_strategy == "Profitable Only"),
+                                          use_setup_config=(dt_strategy != "Global R:R"))
 
             # Tag each trade with the ticker (keep setup_name clean for grouping)
             for t in report["trades"]:
@@ -2784,17 +3136,15 @@ def render_backtest_daily():
         st.dataframe(ts_df, width="stretch", hide_index=True, key="dt_ticker_breakdown")
 
     # ── Filters ──
-    st.markdown("---")
+    _section_header("Filters")
     dt_setup_names_all = sorted(set(_normalize_setup_name(t.setup_name) for t in all_trades))
     dt_cycle_names_all = sorted(set(getattr(t, "market_cycle", "") or "Unknown" for t in all_trades))
 
-    df1, df2 = st.columns(2)
+    df1, df2, df3, df4 = st.columns(4)
     with df1:
         dt_setup_filter = st.multiselect("Setup", dt_setup_names_all, default=[], key="dt_setup_filter")
     with df2:
         dt_dir_filter = st.selectbox("Direction", ["All", "Long", "Short"], key="dt_dir_filter")
-
-    df3, df4 = st.columns(2)
     with df3:
         dt_trend_filter = st.selectbox("Trend", ["All", "With Trend", "Counter"], key="dt_trend_filter")
     with df4:
@@ -2825,51 +3175,46 @@ def render_backtest_daily():
     s = _compute_summary(trades, st.session_state.get("dt_mode", "swing"))
     filtered_curve = _build_equity_curve(trades)
 
-    # ── Combined summary metrics ──
+    # ── Summary metrics (Monzo-style compact row) ──
+    _section_header("Performance", accent=True)
     curve_df = pd.DataFrame(filtered_curve)
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
-    total_return = ((final_equity - 10000) / 10000) * 100
 
-    m1, m2, m3 = st.columns(3)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Trades", s["total_trades"])
     m2.metric("Win Rate", f"{s['win_rate']:.0%}")
-    m3.metric("Account", f"${final_equity:,.0f}")
+    _pnl = s['total_pnl']
+    m3.metric("Net P&L", f"${_pnl:+,.2f}")
+    m4.metric("Expectancy", f"${s['expectancy']:.2f}")
+    m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
+    m6.metric("Avg R", f"{s['avg_r_multiple']:+.2f}")
 
-    m4, m5, m6 = st.columns(3)
-    m4.metric("Return", f"{total_return:+.1f}%")
-    m5.metric("PF", f"{s['profit_factor']:.2f}")
-    m6.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
-
-    m7, m8, m9 = st.columns(3)
-    m7.metric("Avg Win", f"${s['avg_winner']:.2f}")
-    m8.metric("Avg Loss", f"${s['avg_loser']:.2f}")
-    m9.metric("Expect", f"${s['expectancy']:.2f}")
-
-    m10, m11, m12 = st.columns(3)
-    m10.metric("Avg R", f"{s['avg_r_multiple']:.2f}")
-    m11.metric("Kelly", f"{s['kelly_pct']:.1f}%")
-    m12.metric("Days", f"{s['avg_bars_held']:.1f}")
+    # ── Setup Ranking ──
+    _section_header("Setup Ranking")
+    render_setup_performance(s, trades, key_prefix="dt")
 
     # ── Equity curve ──
-    st.markdown("---")
+    _section_header("Equity Curve")
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines+markers", line=dict(color="#00C853", width=2), marker=dict(size=5), name="Account",
+        mode="lines", line=dict(color="rgba(0, 229, 255, 0.12)", width=12),
+        showlegend=False, hoverinfo="skip",
     ))
-    fig_eq.add_hline(y=10000, line_dash="dash", line_color="gray", annotation_text="$10,000 start")
-    fig_eq.update_layout(xaxis_title="Trade #", yaxis_title="Account Balance ($)", height=300,
-                          margin=dict(l=40, r=20, t=20, b=40))
+    fig_eq.add_trace(go.Scatter(
+        x=curve_df["trade_num"], y=curve_df["equity"],
+        mode="lines+markers", line=dict(color="#00e5ff", width=2.5),
+        marker=dict(size=4, color="#00e5ff", line=dict(width=0)), name="Equity",
+    ))
+    fig_eq.add_hline(y=10000, line_dash="dot", line_color="rgba(255,255,255,0.15)",
+                      annotation_text="$10k", annotation_font_color="#4b5563")
+    fig_eq.update_layout(**PLOTLY_LAYOUT, height=300,
+                          xaxis_title="Trade #", yaxis_title="Account ($)")
     st.plotly_chart(fig_eq, use_container_width=True)
 
-    # ── Setup Performance ──
-    render_setup_performance(s, trades, key_prefix="dt")
-
-    # ── Full Analytics ──
-    render_analytics(trades, s, key_prefix="dt")
-
     # ── Trade log (clickable) ──
-    st.markdown("**Trade Log** -- select a row to view the chart")
+    _section_header("Trade Log")
+    st.caption("Click a row to view the chart")
     trade_df = trades_to_dataframe(trades)
     dt_selection = st.dataframe(
         trade_df, width="stretch", hide_index=True,
@@ -2892,7 +3237,12 @@ def render_backtest_daily():
 
     csv_data = trade_df.to_csv(index=False)
     tickers_label = st.session_state.get("dt_ticker_used", "daily")
-    st.download_button("Download CSV", csv_data, f"daily_backtest_{tickers_label}_{dt_mode}.csv", "text/csv", key="dt_csv")
+    st.download_button("Export CSV", csv_data, f"daily_backtest_{tickers_label}_{dt_mode}.csv", "text/csv", key="dt_csv")
+
+    # ── Advanced Analytics (collapsed) ──
+    _section_header("Deep Dive")
+    with st.expander("Advanced Analytics", expanded=False):
+        render_analytics(trades, s, key_prefix="dt")
 
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
@@ -2946,10 +3296,10 @@ CATEGORIES = [
     "Bad Trade, Bad Result",
 ]
 CAT_COLORS = {
-    "Good Trade, Good Result": "#00C853",
-    "Good Trade, Bad Result": "#FF9800",
-    "Bad Trade, Good Result": "#FF9800",
-    "Bad Trade, Bad Result": "#FF1744",
+    "Good Trade, Good Result": "#39ff14",
+    "Good Trade, Bad Result": "#f59e0b",
+    "Bad Trade, Good Result": "#f59e0b",
+    "Bad Trade, Bad Result": "#ff2e63",
 }
 
 
@@ -3341,7 +3691,7 @@ def main():
     render_sidebar()
 
     tab_train, tab_backtest, tab_daily, tab_review, tab_scanner, tab_library = st.tabs(
-        ["Training Lab", "Backtest 5m", "Backtest Daily", "Review Trades", "Scanner", "Library"]
+        ["Train", "5m Backtest", "Daily Backtest", "Review", "Scanner", "Library"]
     )
 
     with tab_train:

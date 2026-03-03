@@ -1,0 +1,60 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Double Top (+ Fade HH DT)", overlay=true, max_labels_count=500)
+
+// ── Inputs ──
+swingLookback = input.int(3, "Swing Lookback", minval=2, maxval=10, tooltip="Bars left/right to confirm a swing high")
+tolerance     = input.float(0.3, "Price Tolerance (%)", minval=0.05, maxval=2.0, step=0.05, tooltip="Max % spread between two swing highs")
+showDT        = input.bool(true, "Show Double Top (Short)")
+showLHDT      = input.bool(true, "Show Lower High DT (Short)")
+showHHDT      = input.bool(true, "Show Fade Higher High DT (Long)")
+
+// ── Swing High Detection ──
+isSwingHigh = true
+for j = 1 to swingLookback
+    if not (high[swingLookback] >= high[swingLookback - j] and high[swingLookback] >= high[swingLookback + j])
+        isSwingHigh := false
+        break
+
+// Track last two swing highs
+var float swHi1 = na
+var float swHi2 = na
+
+if isSwingHigh
+    swHi1 := swHi2
+    swHi2 := high[swingLookback]
+
+// ── Pattern Detection ──
+spread = math.abs(nz(swHi1) - nz(swHi2))
+avg    = (nz(swHi1) + nz(swHi2)) / 2.0
+isDouble = not na(swHi1) and not na(swHi2) and avg > 0 and (spread / avg * 100) < tolerance
+
+// Variant classification
+isExact    = isDouble and math.abs(swHi2 - swHi1) < syminfo.mintick * 2
+isLowerHi  = isDouble and swHi2 < swHi1 and not isExact
+isHigherHi = isDouble and swHi2 > swHi1 and not isExact
+isPlainDT  = isDouble and not isLowerHi and not isHigherHi
+
+fired = isSwingHigh and isDouble
+
+// ── Candle Coloring ──
+// DT and LH DT = Short (red), HH DT = Fade/Long (green — direction is reversed)
+barcolor(fired and isPlainDT and showDT ? color.new(#ff2e63, 0) : na)
+barcolor(fired and isLowerHi and showLHDT ? color.new(#ff2e63, 0) : na)
+barcolor(fired and isHigherHi and showHHDT ? color.new(#39ff14, 0) : na)
+
+// ── Labels ──
+if fired and isPlainDT and showDT
+    label.new(bar_index - swingLookback, high[swingLookback], "DT\nSHORT", style=label.style_label_down, color=color.new(#ff2e63, 80), textcolor=#ff2e63, size=size.small)
+if fired and isLowerHi and showLHDT
+    label.new(bar_index - swingLookback, high[swingLookback], "LH DT\nSHORT", style=label.style_label_down, color=color.new(#ff2e63, 80), textcolor=#ff2e63, size=size.small)
+if fired and isHigherHi and showHHDT
+    // Fade = LONG. The pattern "looks" like a double top but the higher high means buyers are winning.
+    label.new(bar_index - swingLookback, high[swingLookback], "HH DT\nFADE LONG", style=label.style_label_down, color=color.new(#39ff14, 80), textcolor=#39ff14, size=size.small)
+
+// ── Alerts ──
+alertcondition(fired and isPlainDT and showDT, "Double Top — Short", "Double Top detected — sell signal")
+alertcondition(fired and isLowerHi and showLHDT, "Lower High DT — Short", "Lower High Double Top — sell signal")
+alertcondition(fired and isHigherHi and showHHDT, "Fade HH DT — Long", "Fade Higher High Double Top — BUY signal (faded)")

@@ -1,0 +1,50 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Fade Bull Breakout Pullback", overlay=true, max_labels_count=500)
+
+// ── Inputs ──
+baseLookback   = input.int(8, "Base Range Lookback", minval=5, maxval=15, tooltip="How many bars back to establish the consolidation base")
+baseOffset     = input.int(3, "Base Offset", minval=2, maxval=5, tooltip="Gap between base zone and breakout bar")
+pullbackTol    = input.float(0.2, "Pullback Tolerance (%)", minval=0.05, maxval=1.0, step=0.05, tooltip="How close price must return to the breakout level")
+alertOn        = input.bool(true, "Enable Alerts")
+
+// ── Base Range Calculation ──
+// Base = bars from [baseLookback] to [baseOffset] bars ago
+baseTop = ta.highest(high, baseLookback - baseOffset)[baseOffset]
+baseBot = ta.lowest(low, baseLookback - baseOffset)[baseOffset]
+baseRange = baseTop - baseBot
+
+// ── Breakout Bar (2 bars ago) ──
+boBar      = close[2]
+boBarRange = high[2] - low[2]
+isBullBO   = boBar > baseTop and boBarRange > baseRange * 0.5
+
+// ── Pullback Test (current bar) ──
+// Price pulls back to test the old base top (support)
+pullbackTest = low <= baseTop and low >= baseTop * (1 - pullbackTol / 100)
+midpoint     = (high + low) / 2.0
+goodSignal   = close > midpoint  // Closes in upper half = buyers defending
+
+// ── Fire ──
+fired = isBullBO and pullbackTest and goodSignal
+
+// Prevent re-firing
+var int lastFiredBar = 0
+fireOnce = fired and (bar_index - lastFiredBar) > 5
+if fireOnce
+    lastFiredBar := bar_index
+
+// ── Candle Coloring ──
+barcolor(fireOnce ? color.new(#39ff14, 0) : na)
+
+// ── Labels ──
+if fireOnce
+    label.new(bar_index, low, "BO PB", style=label.style_label_up, color=color.new(#39ff14, 75), textcolor=#39ff14, size=size.small)
+
+// ── Draw base level ──
+// plot(baseTop, "Base Top", color=color.new(#00e5ff, 70), linewidth=1, style=plot.style_stepline)
+
+// ── Alerts ──
+alertcondition(fireOnce, "Bull Breakout Pullback", "Fade Bull Breakout Pullback — price retesting breakout level as support")

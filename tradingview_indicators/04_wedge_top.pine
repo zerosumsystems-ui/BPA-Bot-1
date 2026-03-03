@@ -1,0 +1,41 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Wedge Top", overlay=true, max_labels_count=500)
+
+// ── Inputs ──
+swingLookback = input.int(3, "Swing Lookback", minval=2, maxval=10)
+alertOn       = input.bool(true, "Enable Alerts")
+
+// ── Swing High Detection ──
+isSwingHigh = true
+for j = 1 to swingLookback
+    if not (high[swingLookback] >= high[swingLookback - j] and high[swingLookback] >= high[swingLookback + j])
+        isSwingHigh := false
+        break
+
+// Track last three swing highs for 3-push wedge
+var float sw1 = na
+var float sw2 = na
+var float sw3 = na
+
+if isSwingHigh
+    sw1 := sw2
+    sw2 := sw3
+    sw3 := high[swingLookback]
+
+// ── Pattern: 3 consecutive higher swing highs ──
+isWedgeTop = not na(sw1) and not na(sw2) and not na(sw3) and sw3 > sw2 and sw2 > sw1
+
+fired = isSwingHigh and isWedgeTop
+
+// ── Candle Coloring ──
+barcolor(fired ? color.new(#ff2e63, 0) : na)
+
+// ── Labels ──
+if fired
+    label.new(bar_index - swingLookback, high[swingLookback], "WT", style=label.style_label_down, color=color.new(#ff2e63, 80), textcolor=#ff2e63, size=size.small)
+
+// ── Alerts ──
+alertcondition(fired, "Wedge Top", "Wedge Top (3 pushes up) detected — sell signal")

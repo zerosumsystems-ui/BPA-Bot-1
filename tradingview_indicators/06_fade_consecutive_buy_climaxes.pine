@@ -1,0 +1,53 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Fade Consecutive Buy Climaxes", overlay=true, max_labels_count=500)
+
+// ── Inputs ──
+climaxLookback = input.int(10, "Climax Lookback Bars", minval=5, maxval=20)
+climaxMultiple = input.float(1.5, "Climax Size (x avg range)", minval=1.0, maxval=3.0, step=0.1)
+minClimaxes    = input.int(3, "Min Consecutive Climaxes", minval=2, maxval=5)
+alertOn        = input.bool(true, "Enable Alerts")
+
+// ── Average Range ──
+avgRange = ta.sma(high - low, 20)
+
+// ── Count bull climax bars in lookback window ──
+isBullClimax(idx) =>
+    c = close[idx]
+    o = open[idx]
+    h = high[idx]
+    l = low[idx]
+    rng = h - l
+    isBull = c > o
+    bigBar = rng > avgRange * climaxMultiple
+    isBull and bigBar
+
+bullClimaxCount = 0
+for i = 1 to climaxLookback
+    if isBullClimax(i)
+        bullClimaxCount += 1
+
+// ── Reversal Signal: current bar closes bearish below midpoint ──
+midpoint     = (high + low) / 2.0
+isBearClose  = close < open and close < midpoint
+
+// ── Fire ──
+fired = bullClimaxCount >= minClimaxes and isBearClose
+
+// Prevent re-firing on consecutive bars
+var int lastFiredBar = 0
+fireOnce = fired and (bar_index - lastFiredBar) > 3
+if fireOnce
+    lastFiredBar := bar_index
+
+// ── Candle Coloring ──
+barcolor(fireOnce ? color.new(#ff2e63, 0) : na)
+
+// ── Labels ──
+if fireOnce
+    label.new(bar_index, high, "BUY CLX\nFADE", style=label.style_label_down, color=color.new(#ff2e63, 75), textcolor=#ff2e63, size=size.small)
+
+// ── Alerts ──
+alertcondition(fireOnce, "Fade Buy Climaxes", "Fade Consecutive Buy Climaxes — bearish reversal after 3+ parabolic bull bars")

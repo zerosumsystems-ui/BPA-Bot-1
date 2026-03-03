@@ -1,0 +1,48 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Fade Bear Stairs Reversal (3rd/4th Push)", overlay=true, max_labels_count=500)
+
+// ── Inputs ──
+stairLookback  = input.int(15, "Stair Lookback Bars", minval=10, maxval=25)
+minPushes      = input.int(3, "Min Pushes Down", minval=2, maxval=5)
+bodyThreshold  = input.float(0.5, "Min Body/Range Ratio", minval=0.3, maxval=0.8, step=0.05)
+alertOn        = input.bool(true, "Enable Alerts")
+
+// ── Count local minima (stair steps) in lookback window ──
+// A local minimum at position j means: low[j] < low[j-1] AND low[j] < low[j-2] AND low[j] < low[j+1] AND low[j] < low[j+2]
+localMinima = 0
+for j = 2 to stairLookback - 2
+    if low[j] < low[j - 1] and low[j] < low[j - 2] and low[j] < low[j + 1] and low[j] < low[j + 2]
+        localMinima += 1
+
+// ── Reversal Signal Bar ──
+midpoint   = (high + low) / 2.0
+body       = math.abs(close - open)
+rng        = high - low
+isBullBar  = close > open
+closesHigh = close > midpoint
+strongBody = rng > 0 ? (body / rng) > bodyThreshold : false
+
+reversalSignal = isBullBar and closesHigh and strongBody
+
+// ── Fire ──
+fired = localMinima >= minPushes and reversalSignal
+
+// Prevent re-firing
+var int lastFiredBar = 0
+fireOnce = fired and (bar_index - lastFiredBar) > 5
+if fireOnce
+    lastFiredBar := bar_index
+
+// ── Candle Coloring ──
+barcolor(fireOnce ? color.new(#39ff14, 0) : na)
+
+// ── Labels ──
+if fireOnce
+    pushLabel = str.tostring(localMinima) + "P"
+    label.new(bar_index, low, "STAIRS\n" + pushLabel, style=label.style_label_up, color=color.new(#39ff14, 75), textcolor=#39ff14, size=size.small)
+
+// ── Alerts ──
+alertcondition(fireOnce, "Bear Stairs Reversal", "Fade Bear Stairs Reversal — exhaustion after 3+ pushes down in stair-step channel")
