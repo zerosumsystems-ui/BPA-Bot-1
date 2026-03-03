@@ -2983,35 +2983,45 @@ def render_backtest():
                 idx = pd.to_datetime(df.index)
                 return len(set(idx.date))
 
+            # ── Phase 1: Fetch all ticker data in parallel ──
+            def _fetch_one(ticker):
+                """Fetch data for one ticker with yFinance fallback. Thread-safe."""
+                src = _init_data_source_v2()
+                df = None
+                err = None
+                try:
+                    df = src.fetch_historical(ticker, start_str, end_str)
+                except Exception as e:
+                    err = f"{ticker}: {src.name()} failed: {e}"
+
+                got = _count_days(df)
+                if got < max(2, bt_days // 2) and src.name() != "yFinance" and bt_days > 1:
+                    try:
+                        from data_source import YFinanceSource
+                        yf_df = YFinanceSource().fetch_historical(ticker, start_str, end_str)
+                        if _count_days(yf_df) > got:
+                            df = yf_df
+                    except Exception:
+                        pass
+                return ticker, df, err
+
+            import concurrent.futures
+            progress_bar = st.progress(0, text="Fetching data...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(bt_ticker_list), 8)) as pool:
+                results = list(pool.map(_fetch_one, bt_ticker_list))
+            fetched = {ticker: (ticker, df, err) for ticker, df, err in results}
+
+            # ── Phase 2: Process results & run backtests ──
             all_trades = []
             all_daily_dfs = {}
             ticker_summaries = []
-            progress_bar = st.progress(0)
 
             for ti, bt_ticker in enumerate(bt_ticker_list):
-                progress_bar.progress(ti / len(bt_ticker_list), text=f"Backtesting {bt_ticker} ({ti+1}/{len(bt_ticker_list)})...")
+                progress_bar.progress((ti + 1) / len(bt_ticker_list), text=f"Backtesting {bt_ticker} ({ti+1}/{len(bt_ticker_list)})...")
 
-                full_df = None
-                used_source = source.name()
-                try:
-                    full_df = source.fetch_historical(bt_ticker, start_str, end_str)
-                except Exception as e:
-                    st.caption(f"{bt_ticker}: {source.name()} failed: {e}")
-
-                got_days = _count_days(full_df)
-
-                if got_days < max(2, bt_days // 2) and source.name() != "yFinance" and bt_days > 1:
-                    try:
-                        from data_source import YFinanceSource
-                        yf_source = YFinanceSource()
-                        yf_df = yf_source.fetch_historical(bt_ticker, start_str, end_str)
-                        yf_days = _count_days(yf_df)
-                        if yf_days > got_days:
-                            full_df = yf_df
-                            used_source = "yFinance"
-                            got_days = yf_days
-                    except Exception:
-                        pass
+                _, full_df, fetch_err = fetched.get(bt_ticker, (bt_ticker, None, None))
+                if fetch_err:
+                    st.caption(fetch_err)
 
                 if full_df is None or full_df.empty:
                     st.caption(f"{bt_ticker}: no data")
@@ -3039,7 +3049,6 @@ def render_backtest():
                 for t in report["trades"]:
                     t.ticker = bt_ticker
                 all_trades.extend(report["trades"])
-                # Key daily dfs by (ticker, date) to avoid overwrites in multi-ticker mode
                 for date_str, ddf in daily_dfs.items():
                     all_daily_dfs[f"{bt_ticker}|{date_str}"] = ddf
 

@@ -11,6 +11,7 @@ Usage:
 """
 
 import os
+import re
 import logging
 import datetime
 import time
@@ -52,77 +53,11 @@ def _is_rate_limit(exc: Exception) -> bool:
 
 # ─────────────────────────── EXCHANGE MAPPING ────────────────────────────────
 
-# Dataset: XNAS.ITCH (Nasdaq TotalView-ITCH) covers ALL NMS securities,
-# including NYSE-listed stocks that trade on Nasdaq. OHLCV price data is
-# accurate for all symbols. Volume reflects only Nasdaq's share (~16-20%
-# of consolidated volume for NYSE primary-listed stocks) — acceptable for
-# price-action analysis but not for volume-based strategies.
-#
-# If consolidated volume is needed, migrate to DBEQ.BASIC / DBEQ.MAX
-# or supplement with XNYS.PILLAR for NYSE-primary stocks.
+# XNAS.ITCH (Nasdaq TotalView-ITCH) covers ALL NMS securities including
+# NYSE-listed stocks. OHLCV price data is accurate for all symbols.
+# Volume reflects only Nasdaq's share (~16-20% of consolidated volume).
 
-# NYSE-primary S&P 500 stocks (retained for potential future dataset routing)
-NYSE_TICKERS = {
-    "A", "AAL", "AAP", "ABBV", "ABT", "ACN", "ADBE", "ADI", "ADM", "ADP",
-    "AEE", "AEP", "AES", "AFL", "AIG", "AIZ", "AJG", "ALB", "ALK", "ALL",
-    "ALLE", "AME", "AMP", "AMT", "AMZN", "ANET", "ANSS", "AON", "AOS", "APA",
-    "APD", "APH", "ARE", "ATO", "AVB", "AVY", "AWK", "AXP", "BA", "BAC",
-    "BAX", "BBY", "BDX", "BEN", "BF.B", "BG", "BIIB", "BK", "BKNG", "BKR",
-    "BLK", "BMY", "BR", "BRK.B", "BRO", "BSX", "BWA", "BXP", "C", "CAG",
-    "CAH", "CARR", "CAT", "CB", "CBRE", "CCI", "CCL", "CDAY", "CF", "CHD",
-    "CI", "CINF", "CL", "CLX", "CMA", "CME", "CMG", "CMI", "CMS", "CNC",
-    "CNP", "COF", "COO", "COP", "COR", "COST", "CPB", "CPRT", "CRL", "CRM",
-    "CSCO", "CSGP", "CSX", "CTAS", "CTLT", "CTRA", "CTSH", "CTVA", "CVS",
-    "CVX", "CZR", "D", "DAL", "DD", "DE", "DFS", "DG", "DGX", "DHI",
-    "DHR", "DIS", "DISH", "DLR", "DLTR", "DOV", "DOW", "DPZ", "DRI", "DTE",
-    "DUK", "DVA", "DVN", "DXC", "DXCM", "EA", "EBAY", "ECL", "ED", "EFX",
-    "EIX", "EL", "EMN", "EMR", "ENPH", "EOG", "EPAM", "EQIX", "EQR", "EQT",
-    "ES", "ESS", "ETN", "ETR", "EVRG", "EW", "EXC", "EXPD", "EXPE", "EXR",
-    "F", "FANG", "FAST", "FBHS", "FCX", "FDS", "FDX", "FE", "FFIV", "FIS",
-    "FISV", "FITB", "FLT", "FMC", "FOX", "FOXA", "FRC", "FRT", "FTNT",
-    "GD", "GE", "GILD", "GIS", "GL", "GLW", "GM", "GNRC", "GOOG", "GOOGL",
-    "GPC", "GPN", "GS", "GWW", "HAL", "HAS", "HBAN", "HCA", "HD", "HOLX",
-    "HON", "HPE", "HPQ", "HRL", "HSIC", "HST", "HSY", "HUM", "HWM", "IBM",
-    "ICE", "IDXX", "IEX", "IFF", "ILMN", "INCY", "INTC", "INTU", "INVH",
-    "IP", "IPG", "IQV", "IR", "IRM", "ISRG", "IT", "ITW", "IVZ", "J",
-    "JBHT", "JCI", "JKHY", "JNJ", "JNPR", "JPM", "K", "KDP", "KEY", "KEYS",
-    "KHC", "KIM", "KLAC", "KMB", "KMI", "KMX", "KO", "KR", "L", "LDOS",
-    "LEN", "LH", "LHX", "LIN", "LKQ", "LLY", "LMT", "LNC", "LNT", "LOW",
-    "LRCX", "LUMN", "LUV", "LVS", "LW", "LYB", "LYV", "MA", "MAA", "MAR",
-    "MAS", "MCD", "MCHP", "MCK", "MCO", "MDLZ", "MDT", "MET", "META",
-    "MGM", "MHK", "MKC", "MKTX", "MLM", "MMC", "MMM", "MNST", "MO", "MOH",
-    "MOS", "MPC", "MPWR", "MRK", "MRNA", "MRO", "MS", "MSCI", "MSFT",
-    "MSI", "MTB", "MTCH", "MTD", "MU", "NCLH", "NDAQ", "NDSN", "NEE",
-    "NEM", "NFLX", "NI", "NKE", "NOC", "NOW", "NRG", "NSC", "NTAP",
-    "NTRS", "NUE", "NVDA", "NVR", "NWL", "NWS", "NWSA", "O", "ODFL",
-    "OGN", "OKE", "OMC", "ON", "ORCL", "ORLY", "OTIS", "OXY", "PARA",
-    "PAYC", "PAYX", "PCAR", "PCG", "PEAK", "PEG", "PEP", "PFE", "PFG",
-    "PG", "PGR", "PH", "PHM", "PKG", "PKI", "PLD", "PM", "PNC", "PNR",
-    "PNW", "POOL", "PPG", "PPL", "PRU", "PSA", "PSX", "PTC", "PVH", "PWR",
-    "PXD", "PYPL", "QCOM", "QRVO", "RCL", "RE", "REG", "REGN", "RF",
-    "RHI", "RJF", "RL", "RMD", "ROK", "ROL", "ROP", "ROST", "RSG", "RTX",
-    "SBAC", "SBNY", "SBUX", "SCHW", "SEE", "SHW", "SIVB", "SJM", "SLB",
-    "SNA", "SNPS", "SO", "SPG", "SPGI", "SRE", "STE", "STT", "STX", "STZ",
-    "SWK", "SWKS", "SYF", "SYK", "SYY", "T", "TAP", "TDG", "TDY", "TECH",
-    "TEL", "TER", "TFC", "TFX", "TGT", "TJX", "TMO", "TMUS", "TPR",
-    "TRGP", "TRMB", "TROW", "TRV", "TSCO", "TSLA", "TSN", "TT", "TTWO",
-    "TXN", "TXT", "TYL", "UAL", "UDR", "UHS", "ULTA", "UNH", "UNP", "UPS",
-    "URI", "USB", "V", "VFC", "VICI", "VLO", "VMC", "VNO", "VRSK", "VRSN",
-    "VRTX", "VTR", "VTRS", "VZ", "WAB", "WAT", "WBA", "WBD", "WDC", "WEC",
-    "WELL", "WFC", "WHR", "WM", "WMB", "WMT", "WRB", "WRK", "WST", "WTW",
-    "WY", "WYNN", "XEL", "XOM", "XRAY", "XYL", "YUM", "ZBH", "ZBRA",
-    "ZION", "ZTS",
-}
-
-
-def get_dataset_for_ticker(ticker: str) -> str:
-    """Return the Databento dataset for a given ticker.
-
-    Currently returns XNAS.ITCH for all tickers. NYSE-listed stocks trade
-    on Nasdaq under NMS rules, so OHLCV price data is available (volume
-    reflects only Nasdaq's portion of trading).
-    """
-    return "XNAS.ITCH"
+DATABENTO_DATASET = "XNAS.ITCH"
 
 
 # ─────────────────────────── BASE CLASS ──────────────────────────────────────
@@ -178,8 +113,6 @@ class DatabentoSource(DataSource):
         Preserves the data_end_after_available_end correction logic.
         Returns the raw data object on success, None on failure.
         """
-        import re
-
         for attempt in range(self._max_retries):
             try:
                 data = self._client.timeseries.get_range(
@@ -248,7 +181,6 @@ class DatabentoSource(DataSource):
         Accepts an optional client for thread-safe bulk operations.
         Returns DataFrame on success, None on failure.
         """
-        import re
         _client = client or self._client
 
         for attempt in range(self._max_retries):
@@ -320,7 +252,7 @@ class DatabentoSource(DataSource):
         end_date: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
 
-        dataset = get_dataset_for_ticker(ticker)
+        dataset = DATABENTO_DATASET
 
         # Default: trailing 3 days to account for weekends/holidays/delayed free tier
         if start_date and end_date:
@@ -336,10 +268,9 @@ class DatabentoSource(DataSource):
         end_dt = datetime.datetime.fromisoformat(end)
         s_str = start_dt.strftime("%Y-%m-%d")
         # Databento's end date is strictly exclusive — add 1 day so that
-        # a request ending on "today" still includes today's bars.
-        # Clamp to tomorrow at most to avoid data_end_after_available_end
-        # on every single request (the handler in _fetch_with_retry is a
-        # safety net, not the primary path).
+        # requesting "today" still includes today's bars.
+        # Clamp to tomorrow at most to avoid triggering
+        # data_end_after_available_end on every request.
         target_e = end_dt.date() + datetime.timedelta(days=1)
         max_end = datetime.date.today() + datetime.timedelta(days=1)
         if target_e > max_end:
@@ -348,9 +279,9 @@ class DatabentoSource(DataSource):
         db_start = f"{s_str}T00:00:00"
         db_end = f"{e_str}T00:00:00"
 
-        # Try schemas in order of preference.
-        # Each schema is retried internally (with backoff) before falling through.
-        schemas_to_try = ["ohlcv-1m", "ohlcv-1s", "ohlcv-1d"]
+        # Try 1-minute first (ideal for 5-min resampling), then daily as last resort.
+        # Skipping ohlcv-1s: fetching 1-second bars is wasteful when 1-minute exists.
+        schemas_to_try = ["ohlcv-1m", "ohlcv-1d"]
 
         for schema in schemas_to_try:
             try:
@@ -436,7 +367,7 @@ class DatabentoSource(DataSource):
         if not self._client or not tickers:
             return pd.DataFrame()
 
-        dataset = get_dataset_for_ticker(tickers[0])
+        dataset = DATABENTO_DATASET
         schema = "ohlcv-1m"
         all_dfs = []
 
@@ -447,7 +378,7 @@ class DatabentoSource(DataSource):
 
         # Databento's end date is exclusive — add 1 day for full coverage.
         # Clamp to tomorrow to avoid triggering data_end_after_available_end
-        # on every request (the handler in _fetch_batch_with_retry is a safety net).
+        # on every request (the handler is a safety net, not the primary path).
         target_e = e_dt.date() + datetime.timedelta(days=1)
         max_end = datetime.date.today() + datetime.timedelta(days=1)
         if target_e > max_end:
