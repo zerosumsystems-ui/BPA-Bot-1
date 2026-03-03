@@ -888,7 +888,10 @@ def fetch_chart_data_v2(ticker: str, start_date: str | None = None, end_date: st
         # Create a sequential Bar Number for the day, starting at 1
         df["BarNumber"] = range(1, len(df) + 1)
         return df
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).error(
+            f"fetch_chart_data_v2 failed for {ticker} (start={start_date}, end={end_date}): {e}"
+        )
         return None
 
 
@@ -2247,7 +2250,7 @@ def check_prefetch():
                 st.session_state["prefetch_ready"] = True
             executor = st.session_state.pop("prefetch_executor", None)
             if executor:
-                executor.shutdown(wait=False)
+                executor.shutdown(wait=True)
             st.session_state.pop("prefetch_future", None)
 
 

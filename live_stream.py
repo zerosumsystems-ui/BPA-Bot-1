@@ -66,6 +66,7 @@ class LiveBarStream:
         self._running = False
         self._last_analysis: dict = {}
         self._error: Optional[str] = None
+        self._live_client: Optional[object] = None
 
     @property
     def is_running(self) -> bool:
@@ -116,6 +117,12 @@ class LiveBarStream:
         """Stop the live streaming thread."""
         self._stop_event.set()
         self._running = False
+        # Close the live client to unblock the record iteration loop
+        if self._live_client is not None:
+            try:
+                self._live_client.close()
+            except Exception:
+                pass
         if self._thread:
             self._thread.join(timeout=5)
             self._thread = None
@@ -127,6 +134,7 @@ class LiveBarStream:
             import databento as db
 
             client = db.Live(key=self._api_key)
+            self._live_client = client  # Store for cleanup in stop()
             client.subscribe(
                 dataset=self._dataset,
                 schema="ohlcv-5m",
@@ -168,6 +176,12 @@ class LiveBarStream:
             logger.error(f"Live stream error: {e}")
         finally:
             self._running = False
+            if self._live_client is not None:
+                try:
+                    self._live_client.close()
+                except Exception:
+                    pass
+                self._live_client = None
 
     def _run_simulated(self):
         """
