@@ -279,9 +279,11 @@ class DatabentoSource(DataSource):
         db_start = f"{s_str}T00:00:00"
         db_end = f"{e_str}T00:00:00"
 
-        # Try 1-minute first (ideal for 5-min resampling), then daily as last resort.
-        # Skipping ohlcv-1s: fetching 1-second bars is wasteful when 1-minute exists.
-        schemas_to_try = ["ohlcv-1m", "ohlcv-1d"]
+        # Only use 1-minute bars. The app needs 5-min resampled data everywhere
+        # (charts, backtests). Daily bars are useless and actively harmful: they
+        # "succeed" the fetch but fail downstream checks (e.g. >=10 bars/day),
+        # preventing the yFinance fallback from triggering.
+        schemas_to_try = ["ohlcv-1m"]
 
         for schema in schemas_to_try:
             try:
@@ -321,31 +323,30 @@ class DatabentoSource(DataSource):
                 if df.empty:
                     continue
 
-                # Resample to 5-minute bars if not already daily
-                if schema != "ohlcv-1d":
-                    df = df.resample("5min").agg({
-                        "Open": "first",
-                        "High": "max",
-                        "Low": "min",
-                        "Close": "last",
-                        "Volume": "sum",
-                    }).dropna()
+                # Resample to 5-minute bars
+                df = df.resample("5min").agg({
+                    "Open": "first",
+                    "High": "max",
+                    "Low": "min",
+                    "Close": "last",
+                    "Volume": "sum",
+                }).dropna()
 
-                    if not df.empty:
-                        # Ensure timezone is US/Eastern for RTH filtering
-                        if df.index.tzinfo is None:
-                            df.index = df.index.tz_localize("UTC").tz_convert("US/Eastern")
-                        else:
-                            df.index = df.index.tz_convert("US/Eastern")
+                if not df.empty:
+                    # Ensure timezone is US/Eastern for RTH filtering
+                    if df.index.tzinfo is None:
+                        df.index = df.index.tz_localize("UTC").tz_convert("US/Eastern")
+                    else:
+                        df.index = df.index.tz_convert("US/Eastern")
 
-                        # Filter to Regular Trading Hours (RTH)
-                        df = df.between_time("09:30", "15:59")
+                    # Filter to Regular Trading Hours (RTH)
+                    df = df.between_time("09:30", "15:59")
 
-                        # Only keep the most recent day when no date range was explicitly requested
-                        if not start_date and not df.empty:
-                            df["_date"] = df.index.date
-                            last_day = df["_date"].max()
-                            df = df[df["_date"] == last_day].drop(columns=["_date"])
+                    # Only keep the most recent day when no date range was explicitly requested
+                    if not start_date and not df.empty:
+                        df["_date"] = df.index.date
+                        last_day = df["_date"].max()
+                        df = df[df["_date"] == last_day].drop(columns=["_date"])
 
                 logger.info(f"Databento: got {len(df)} bars via {schema}")
                 self._last_error_message = None  # Clear on success
