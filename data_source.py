@@ -47,15 +47,9 @@ def _is_rate_limit(exc: Exception) -> bool:
 
 # ─────────────────────────── EXCHANGE MAPPING ────────────────────────────────
 
-# XNAS.ITCH (Nasdaq TotalView-ITCH) covers ALL NMS securities including
-# NYSE-listed stocks. OHLCV price data is accurate for all symbols.
-# Volume reflects only Nasdaq's share (~16-20% of consolidated volume).
-
 DATABENTO_DATASET = "XNAS.ITCH"
 
-# TTL for the cached available_end date (seconds). After this period,
-# the cache is considered stale and the next request will re-discover
-# the server's actual data limit.
+# TTL for the cached available_end date (seconds).
 _AVAILABLE_END_TTL = 300  # 5 minutes
 
 
@@ -71,15 +65,13 @@ class DatabentoSource:
         self._max_retries = 3
         self._base_wait = 1  # seconds; exponential backoff: 1s, 2s, 4s
         self._last_error_message = None
-        # Cache the last-known available end date with a TTL so it
-        # doesn't go stale during long Streamlit sessions.
         self._available_end: Optional[str] = None
-        self._available_end_ts: float = 0.0  # time.time() when cached
+        self._available_end_ts: float = 0.0
 
     def name(self) -> str:
         return "Databento"
 
-    # ── Retry helpers ──
+    # ── Internal helpers ──
 
     def _clamp_end(self, db_end: str) -> str:
         """Use cached available_end if fresh and the request exceeds it."""
@@ -94,56 +86,12 @@ class DatabentoSource:
         self._available_end = end_str
         self._available_end_ts = time.time()
 
-    def _retry_loop(self, call_fn, schema_label: str):
-        """
-        Generic retry loop for Databento API calls.
-        call_fn(end) -> result. Called with the current db_end.
-        Handles data_end_after_available_end, transient errors, and backoff.
-        """
-        for attempt in range(self._max_retries):
-            try:
-                return call_fn()
-            except Exception as ex:
-                err_str = str(ex)
-
-                # data_end_after_available_end — correct end date, cache, retry once
-                if "data_end_after_available_end" in err_str:
-                    match = re.search(r"available up to '([^']+)'", err_str)
-                    if match:
-                        new_end = match.group(1).replace(" ", "T")
-                        self._cache_available_end(new_end)
-                        logger.info(f"Databento {schema_label}: caching available_end={new_end}, retrying")
-                        return None  # caller should retry with clamped end
-                    logger.warning(f"Could not parse available_end from: {err_str[:200]}")
-                    return None
-
-                if _is_transient_error(ex):
-                    if attempt < self._max_retries - 1:
-                        wait = self._base_wait * (2 ** attempt)
-                        if _is_rate_limit(ex):
-                            wait = min(wait * 2, 16)
-                        logger.warning(
-                            f"Databento {schema_label} transient error (attempt {attempt + 1}/{self._max_retries}), "
-                            f"retrying in {wait}s: {err_str[:120]}"
-                        )
-                        time.sleep(wait)
-                        continue
-                    else:
-                        logger.error(f"Databento {schema_label} failed after {self._max_retries} attempts: {err_str[:200]}")
-                        self._last_error_message = f"{schema_label}: {err_str[:200]}"
-                        return None
-                else:
-                    logger.warning(f"Databento {schema_label} non-transient error: {err_str[:200]}")
-                    self._last_error_message = f"{schema_label}: {err_str[:200]}"
-                    return None
-        return None
-
-    def _make_date_range(self, start: str, end: str):
+    @staticmethod
+    def _make_date_range(start: str, end: str):
         """Convert ISO date strings to Databento start/end with +1 day clamping."""
         start_dt = datetime.datetime.fromisoformat(start)
         end_dt = datetime.datetime.fromisoformat(end)
         s_str = start_dt.strftime("%Y-%m-%d")
-        # Databento end is exclusive — add 1 day. Clamp to tomorrow.
         target_e = end_dt.date() + datetime.timedelta(days=1)
         max_end = datetime.date.today() + datetime.timedelta(days=1)
         if target_e > max_end:
@@ -151,68 +99,145 @@ class DatabentoSource:
         e_str = target_e.strftime("%Y-%m-%d")
         return f"{s_str}T00:00:00", f"{e_str}T00:00:00"
 
-    def _fetch_single(self, dataset: str, ticker: str, schema: str,
-                      db_start: str, db_end: str):
-        """Fetch one ticker with retry. Returns raw data object or None."""
+    def _fetch_with_retry(self, dataset: str, ticker: str, schema: str,
+                          db_start: str, db_end: str):
+        """
+        Single timeseries.get_range() call with retry + exponential backoff.
+        Handles data_end_after_available_end corrections.
+        Returns the raw data object on success, None on failure.
+        """
         db_end = self._clamp_end(db_end)
 
-        def call():
-            return self._client.timeseries.get_range(
-                dataset=dataset, symbols=[ticker], stype_in="raw_symbol",
-                schema=schema, start=db_start, end=db_end,
-            )
+        for attempt in range(self._max_retries):
+            try:
+                data = self._client.timeseries.get_range(
+                    dataset=dataset,
+                    symbols=[ticker],
+                    stype_in="raw_symbol",
+                    schema=schema,
+                    start=db_start,
+                    end=db_end,
+                )
+                return data
 
-        result = self._retry_loop(call, f"{schema}/{ticker}")
+            except Exception as ex:
+                err_str = str(ex)
 
-        # If we got None because available_end was discovered, retry once with clamped end
-        if result is None and self._available_end:
-            clamped = self._clamp_end(db_end)
-            if clamped != db_end:
-                def retry_call():
-                    return self._client.timeseries.get_range(
-                        dataset=dataset, symbols=[ticker], stype_in="raw_symbol",
-                        schema=schema, start=db_start, end=clamped,
-                    )
-                try:
-                    result = retry_call()
-                except Exception as e:
-                    logger.warning(f"Databento {schema}/{ticker} retry with clamped end failed: {e}")
-        return result
+                if "data_end_after_available_end" in err_str:
+                    match = re.search(r"available up to '([^']+)'", err_str)
+                    if match:
+                        new_end_str = match.group(1).replace(" ", "T")
+                        self._cache_available_end(new_end_str)
+                        logger.info(f"Databento: caching available_end={new_end_str}, retrying")
+                        try:
+                            return self._client.timeseries.get_range(
+                                dataset=dataset,
+                                symbols=[ticker],
+                                stype_in="raw_symbol",
+                                schema=schema,
+                                start=db_start,
+                                end=new_end_str,
+                            )
+                        except Exception as retry_ex:
+                            logger.warning(f"Databento {schema} retry with corrected end also failed: {retry_ex}")
+                            return None
+                    else:
+                        logger.warning(f"Could not parse available_end from: {err_str[:200]}")
+                        return None
 
-    def _fetch_batch(self, dataset: str, batch: list, schema: str,
-                     db_start: str, db_end: str, client=None):
+                if _is_transient_error(ex):
+                    if attempt < self._max_retries - 1:
+                        wait = self._base_wait * (2 ** attempt)
+                        if _is_rate_limit(ex):
+                            wait = min(wait * 2, 16)
+                        logger.warning(
+                            f"Databento {schema} transient error (attempt {attempt + 1}/{self._max_retries}), "
+                            f"retrying in {wait}s: {err_str[:120]}"
+                        )
+                        time.sleep(wait)
+                        continue
+                    else:
+                        logger.error(f"Databento {schema} failed after {self._max_retries} attempts: {err_str[:200]}")
+                        self._last_error_message = f"{schema}: {err_str[:200]}"
+                        return None
+                else:
+                    logger.warning(f"Databento {schema} non-transient error: {err_str[:200]}")
+                    self._last_error_message = f"{schema}: {err_str[:200]}"
+                    return None
+
+        return None
+
+    def _fetch_batch_with_retry(self, dataset: str, batch: list, schema: str,
+                                db_start: str, db_end: str, client=None):
         """Fetch a batch of tickers with retry. Returns DataFrame or None."""
         _client = client or self._client
         db_end = self._clamp_end(db_end)
 
-        def call():
-            data = _client.timeseries.get_range(
-                dataset=dataset, symbols=batch, stype_in="raw_symbol",
-                schema=schema, start=db_start, end=db_end,
-            )
-            return data.to_df() if data else None
+        for attempt in range(self._max_retries):
+            try:
+                data = _client.timeseries.get_range(
+                    dataset=dataset,
+                    symbols=batch,
+                    stype_in="raw_symbol",
+                    schema=schema,
+                    start=db_start,
+                    end=db_end,
+                )
+                return data.to_df() if data else None
 
-        result = self._retry_loop(call, f"bulk-{schema}")
+            except Exception as ex:
+                err_str = str(ex)
 
-        if result is None and self._available_end:
-            clamped = self._clamp_end(db_end)
-            if clamped != db_end:
-                try:
-                    data = _client.timeseries.get_range(
-                        dataset=dataset, symbols=batch, stype_in="raw_symbol",
-                        schema=schema, start=db_start, end=clamped,
-                    )
-                    result = data.to_df() if data else None
-                except Exception as e:
-                    logger.warning(f"Databento bulk retry with clamped end failed: {e}")
-                    self._last_error_message = f"bulk: {str(e)[:200]}"
-        return result
+                if "data_end_after_available_end" in err_str:
+                    match = re.search(r"available up to '([^']+)'", err_str)
+                    if match:
+                        new_end_str = match.group(1).replace(" ", "T")
+                        self._cache_available_end(new_end_str)
+                        logger.info(f"Databento bulk: caching available_end={new_end_str}, retrying")
+                        try:
+                            data = _client.timeseries.get_range(
+                                dataset=dataset,
+                                symbols=batch,
+                                stype_in="raw_symbol",
+                                schema=schema,
+                                start=db_start,
+                                end=new_end_str,
+                            )
+                            return data.to_df() if data else None
+                        except Exception as retry_ex:
+                            logger.warning(f"Databento bulk retry with corrected end also failed: {retry_ex}")
+                            self._last_error_message = f"bulk_batch: {str(retry_ex)[:200]}"
+                            return None
+                    else:
+                        logger.warning(f"Could not parse available_end from: {err_str[:200]}")
+                        self._last_error_message = f"bulk_batch: {err_str[:200]}"
+                        return None
 
-    # ── Public API ──
+                if _is_transient_error(ex):
+                    if attempt < self._max_retries - 1:
+                        wait = self._base_wait * (2 ** attempt)
+                        if _is_rate_limit(ex):
+                            wait = min(wait * 2, 16)
+                        logger.warning(
+                            f"Databento bulk transient error (attempt {attempt + 1}/{self._max_retries}), "
+                            f"retrying in {wait}s: {err_str[:120]}"
+                        )
+                        time.sleep(wait)
+                        continue
+                    else:
+                        logger.error(f"Databento bulk failed after {self._max_retries} attempts: {err_str[:200]}")
+                        self._last_error_message = f"bulk_batch: {err_str[:200]}"
+                        return None
+                else:
+                    logger.warning(f"Databento bulk non-transient error: {err_str[:200]}")
+                    self._last_error_message = f"bulk_batch: {err_str[:200]}"
+                    return None
+
+        return None
 
     @staticmethod
     def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-        """Rename Databento lowercase columns to capitalized, keep OHLCV only."""
+        """Rename Databento lowercase columns to capitalized, keep OHLCV."""
         rename_map = {"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
         df = df.rename(columns=rename_map)
         keep = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
@@ -237,6 +262,8 @@ class DatabentoSource:
             df = df.between_time("09:30", "15:59")
         return df
 
+    # ── Public API ──
+
     def fetch_historical(
         self,
         ticker: str,
@@ -253,8 +280,8 @@ class DatabentoSource:
 
         db_start, db_end = self._make_date_range(start, end)
 
-        logger.info(f"Databento: ohlcv-1m for {ticker} ({start} → {end})")
-        data = self._fetch_single(DATABENTO_DATASET, ticker, "ohlcv-1m", db_start, db_end)
+        logger.info(f"Databento: ohlcv-1m for {ticker} ({start} -> {end})")
+        data = self._fetch_with_retry(DATABENTO_DATASET, ticker, "ohlcv-1m", db_start, db_end)
 
         if data is None:
             logger.warning(f"Databento ohlcv-1m returned None for {ticker}")
@@ -269,7 +296,6 @@ class DatabentoSource:
         if df.empty:
             return None
 
-        # Convert to Eastern BEFORE resampling so 5-min bars align to market time
         df = self._to_eastern(df)
         df = self._resample_5min_rth(df)
 
@@ -297,8 +323,8 @@ class DatabentoSource:
 
         db_start, db_end = self._make_date_range(start, end)
 
-        logger.info(f"Databento: ohlcv-1d for {ticker} ({start} → {end})")
-        data = self._fetch_single(DATABENTO_DATASET, ticker, "ohlcv-1d", db_start, db_end)
+        logger.info(f"Databento: ohlcv-1d for {ticker} ({start} -> {end})")
+        data = self._fetch_with_retry(DATABENTO_DATASET, ticker, "ohlcv-1d", db_start, db_end)
 
         if data is None:
             return None
@@ -311,7 +337,6 @@ class DatabentoSource:
         if df.empty:
             return None
 
-        # Normalize to Eastern for consistency with intraday data
         df = self._to_eastern(df)
 
         logger.info(f"Databento: got {len(df)} daily bars for {ticker}")
@@ -336,15 +361,26 @@ class DatabentoSource:
 
         def fetch_batch(batch):
             thread_client = db.Historical(self._api_key)
-            return self._fetch_batch(DATABENTO_DATASET, batch, "ohlcv-1m", db_start, db_end, client=thread_client)
+            return self._fetch_batch_with_retry(DATABENTO_DATASET, batch, "ohlcv-1m", db_start, db_end, client=thread_client)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(batches), 10)) as executor:
             results = list(executor.map(fetch_batch, batches))
 
         all_dfs = []
+        succeeded = 0
+        failed = 0
         for df in results:
             if df is not None and not df.empty:
                 all_dfs.append(df)
+                succeeded += 1
+            else:
+                failed += 1
+
+        if failed > 0:
+            logger.warning(
+                f"Databento bulk: {failed}/{len(batches)} batches failed "
+                f"({succeeded} succeeded, covering ~{succeeded * batch_size} of {len(tickers)} tickers)"
+            )
 
         if not all_dfs:
             logger.error("Databento bulk: no data from any batch")
@@ -354,7 +390,6 @@ class DatabentoSource:
         if big_df.empty or "symbol" not in big_df.columns:
             return pd.DataFrame()
 
-        # Normalize columns
         rename_map = {"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
         big_df = big_df.rename(columns=rename_map)
         keep_cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "symbol"] if c in big_df.columns]
@@ -363,10 +398,8 @@ class DatabentoSource:
         if big_df.empty:
             return pd.DataFrame()
 
-        # Convert to Eastern before resampling
         big_df = self._to_eastern(big_df)
 
-        # Process each symbol: resample to 5min, filter RTH
         processed_dfs = []
         for sym, group in big_df.groupby("symbol"):
             resampled = group.drop(columns=["symbol"]).resample("5min").agg({

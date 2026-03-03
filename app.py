@@ -3327,7 +3327,7 @@ def render_backtest_daily():
 
             required = ["Open", "High", "Low", "Close"]
             if not all(c in df.columns for c in required):
-                st.caption(f"{sym}: missing OHLC columns ({list(df.columns)})")
+                st.caption(f"{sym}: missing OHLC columns, skipping")
                 continue
 
             df = df.dropna(subset=required)

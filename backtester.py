@@ -1460,32 +1460,31 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
         ticker = sys.argv[1].upper()
-        try:
-            import yfinance as yf
-            print(f"Fetching 5-min data for {ticker}...")
-            df = yf.download(ticker, period="1d", interval="5m", progress=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+        from data_source import get_data_source
+        ds = get_data_source()
+        print(f"Fetching 5-min data for {ticker}...")
+        df = ds.fetch_historical(ticker)
+        if df is None or df.empty:
+            print("No data returned.")
+            sys.exit(1)
 
-            start = time.perf_counter()
-            report = run_backtest(df, mode="scalp")
-            elapsed = (time.perf_counter() - start) * 1000
+        start = time.perf_counter()
+        report = run_backtest(df, mode="scalp")
+        elapsed = (time.perf_counter() - start) * 1000
 
-            s = report["summary"]
-            print(f"\n⚡ Backtest completed in {elapsed:.1f}ms")
-            print(f"Total Trades: {s['total_trades']}")
-            print(f"Win Rate: {s['win_rate']:.1%}")
-            print(f"Total P&L: ${s['total_pnl']:.2f}/share")
-            print(f"Profit Factor: {s['profit_factor']:.2f}")
-            print(f"Sharpe Ratio: {s['sharpe_ratio']:.2f}")
-            print(f"Max Drawdown: ${s['max_drawdown']:.2f}/share")
-            print(f"Avg R-Multiple: {s['avg_r_multiple']:.2f}R")
-            print(f"\nSetup Breakdown:")
-            for name, stats in s["setup_stats"].items():
-                print(f"  {name}: {stats['count']} trades, {stats['win_rate']:.0%} win rate, ${stats['pnl']:.2f} P&L")
-            print(f"\nTrades:")
-            for t in report["trades"]:
-                icon = "✅" if t.is_winner else "❌"
-                print(f"  {icon} {t.setup_name} ({t.direction}) bar {t.entry_bar} → {t.exit_reason}: ${t.pnl:+.2f} ({t.r_multiple:+.1f}R)")
-        except ImportError:
-            print("yfinance not installed — provide a DataFrame directly.")
+        s = report["summary"]
+        print(f"\nBacktest completed in {elapsed:.1f}ms")
+        print(f"Total Trades: {s['total_trades']}")
+        print(f"Win Rate: {s['win_rate']:.1%}")
+        print(f"Total P&L: ${s['total_pnl']:.2f}/share")
+        print(f"Profit Factor: {s['profit_factor']:.2f}")
+        print(f"Sharpe Ratio: {s['sharpe_ratio']:.2f}")
+        print(f"Max Drawdown: ${s['max_drawdown']:.2f}/share")
+        print(f"Avg R-Multiple: {s['avg_r_multiple']:.2f}R")
+        print(f"\nSetup Breakdown:")
+        for name, stats in s["setup_stats"].items():
+            print(f"  {name}: {stats['count']} trades, {stats['win_rate']:.0%} win rate, ${stats['pnl']:.2f} P&L")
+        print(f"\nTrades:")
+        for t in report["trades"]:
+            icon = "W" if t.is_winner else "L"
+            print(f"  [{icon}] {t.setup_name} ({t.direction}) bar {t.entry_bar} -> {t.exit_reason}: ${t.pnl:+.2f} ({t.r_multiple:+.1f}R)")

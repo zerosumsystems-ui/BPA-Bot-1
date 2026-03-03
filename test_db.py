@@ -1,3 +1,4 @@
+import datetime as dt
 from app import get_databento_key, get_sp500_tickers
 import databento as db
 import pandas as pd
@@ -6,8 +7,12 @@ import sys
 
 def main():
     tickers = get_sp500_tickers()
-    batches = [tickers[i:i+50] for i in range(0, 100, 50)] # test 2 batches of 50
+    batches = [tickers[i:i+50] for i in range(0, 100, 50)]  # test 2 batches of 50
     client = db.Historical(get_databento_key())
+
+    today = dt.date.today()
+    start = (today - dt.timedelta(days=2)).strftime("%Y-%m-%dT00:00:00")
+    end = today.strftime("%Y-%m-%dT00:00:00")
 
     for i, batch in enumerate(batches):
         print(f"Fetching batch {i} with {len(batch)} tickers...", flush=True)
@@ -18,8 +23,8 @@ def main():
                 symbols=batch,
                 stype_in="raw_symbol",
                 schema="ohlcv-1m",
-                start="2026-02-27T00:00:00",
-                end="2026-02-28T00:00:00"
+                start=start,
+                end=end,
             )
             df = data.to_df()
             print(f"Batch {i} took {time.time()-t0:.2f}s, rows={len(df)}")

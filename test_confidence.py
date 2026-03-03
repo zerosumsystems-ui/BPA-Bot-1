@@ -4,7 +4,7 @@ Run locally:  cd /path/to/BPA-Bot-1 && python test_confidence.py
 
 Tests whether the algo's confidence scores actually predict profitability.
 
-Requirements: pip install yfinance pandas numpy scipy
+Requirements: pip install databento pandas numpy scipy
 """
 import pandas as pd
 import numpy as np
@@ -14,10 +14,10 @@ import datetime as dt
 import warnings
 warnings.filterwarnings("ignore")
 
-# Ensure we can import from the project directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from backtester import run_backtest, run_multi_day_backtest
+from data_source import get_data_source
 
 tickers = [
     # Ultra-liquid ETFs
@@ -32,31 +32,26 @@ tickers = [
 
 all_trades = []
 
-print("Fetching data and running backtests (max 60 days of 5m data)...")
+print("Fetching data and running backtests via Databento...")
 try:
-    import yfinance as yf
-except ImportError:
-    print("ERROR: yfinance not installed. Run: pip3 install yfinance")
+    ds = get_data_source()
+except Exception as e:
+    print(f"ERROR: Cannot initialize data source: {e}")
     sys.exit(1)
+
+today = dt.date.today()
+start_date = (today - dt.timedelta(days=10)).isoformat()
+end_date = today.isoformat()
 
 for ticker in tickers:
     try:
-        # Use period="60d" instead of start/end dates — yFinance handles the window correctly
-        df = yf.download(ticker, period="60d", interval="5m", progress=False)
+        df = ds.fetch_historical(ticker, start_date=start_date, end_date=end_date)
         if df is None or df.empty:
             print(f"  {ticker}: no data")
             continue
 
-        # Flatten MultiIndex columns (yfinance 0.2.x+)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-
-        # Normalize column names to capitalized (yfinance 0.2.31+ returns lowercase)
-        col_map = {}
-        for c in df.columns:
-            if isinstance(c, str):
-                col_map[c] = c.capitalize() if c.lower() != "adj close" else "Adj Close"
-        df.rename(columns=col_map, inplace=True)
 
         required = ["Open", "High", "Low", "Close"]
         if not all(c in df.columns for c in required):
@@ -66,7 +61,7 @@ for ticker in tickers:
         df = df.dropna(subset=required)
         df.index = pd.to_datetime(df.index)
 
-        # Filter to RTH
+        # RTH filter (data_source already does this, but be safe)
         if df.index.tzinfo is not None:
             df.index = df.index.tz_convert("US/Eastern")
             df = df.between_time("09:30", "15:59")
@@ -112,8 +107,8 @@ for t in all_trades:
         "risk_per_share": t.risk_per_share,
         "risk": abs(t.entry_price - t.stop_loss),
         "reward": abs(t.scalp_target - t.entry_price),
-        "mfe_r": t.mfe_r,       # Max Favorable Excursion in R-multiples
-        "mae_r": t.mae_r,       # Max Adverse Excursion in R-multiples
+        "mfe_r": t.mfe_r,
+        "mae_r": t.mae_r,
     })
 
 tdf = pd.DataFrame(rows)
@@ -210,56 +205,39 @@ print(exit_stats.to_string())
 # ============================================================
 # R:R SCENARIO ANALYSIS
 # ============================================================
-# Using MFE (Max Favorable Excursion) to simulate what would happen
-# at different R:R targets. If mfe_r >= target_r, the trade WOULD
-# have hit that target. Otherwise it hit stop (-1R).
-# We exclude unfilled trades (exit_reason == "unfilled") from this analysis.
-
 print("\n\n" + "=" * 80)
-print("R:R SCENARIO ANALYSIS — WHAT IF YOU CHANGED THE TARGET?")
+print("R:R SCENARIO ANALYSIS -- WHAT IF YOU CHANGED THE TARGET?")
 print("=" * 80)
 print("Using MFE data to simulate each setup at different R:R ratios.")
 print("Win = MFE reached target R. Loss = -1R (full stop).")
 
-# ─── REALISTIC COST MODEL ───
-# Commission: round-trip per share (entry + exit)
-# Spread: estimated half-spread cost on each side (entry + exit)
-# These are applied as a flat dollar cost per trade, reducing every trade's P&L.
-COMMISSION_PER_SHARE = 0.005   # $0.005/share (e.g. IBKR tiered)
-SHARES_PER_TRADE = 100         # assume 100 shares per trade
-SPREAD_PER_SIDE = 0.01         # $0.01 (1 cent) half-spread per side for liquid stocks
-ROUND_TRIP_COMMISSION = COMMISSION_PER_SHARE * SHARES_PER_TRADE * 2  # entry + exit
-ROUND_TRIP_SPREAD = SPREAD_PER_SIDE * 2 * SHARES_PER_TRADE           # entry + exit spread
-COST_PER_TRADE = (ROUND_TRIP_COMMISSION + ROUND_TRIP_SPREAD) / SHARES_PER_TRADE  # per-share cost
+COMMISSION_PER_SHARE = 0.005
+SHARES_PER_TRADE = 100
+SPREAD_PER_SIDE = 0.01
+ROUND_TRIP_COMMISSION = COMMISSION_PER_SHARE * SHARES_PER_TRADE * 2
+ROUND_TRIP_SPREAD = SPREAD_PER_SIDE * 2 * SHARES_PER_TRADE
+COST_PER_TRADE = (ROUND_TRIP_COMMISSION + ROUND_TRIP_SPREAD) / SHARES_PER_TRADE
 
-print(f"\nCost model: ${COMMISSION_PER_SHARE}/share commission × {SHARES_PER_TRADE} shares × 2 sides = ${ROUND_TRIP_COMMISSION:.2f}")
-print(f"            ${SPREAD_PER_SIDE}/share spread × 2 sides × {SHARES_PER_TRADE} shares = ${ROUND_TRIP_SPREAD:.2f}")
+print(f"\nCost model: ${COMMISSION_PER_SHARE}/share commission x {SHARES_PER_TRADE} shares x 2 sides = ${ROUND_TRIP_COMMISSION:.2f}")
+print(f"            ${SPREAD_PER_SIDE}/share spread x 2 sides x {SHARES_PER_TRADE} shares = ${ROUND_TRIP_SPREAD:.2f}")
 print(f"            Total cost per trade (per share): ${COST_PER_TRADE:.4f}\n")
 
 rr_ratios = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
 
-# Filter out unfilled trades for scenario analysis
 filled = tdf[tdf["exit_reason"] != "unfilled"].copy()
 
 def simulate_rr(group, target_r, cost_per_share=COST_PER_TRADE):
-    """Simulate a given R:R target using MFE data, with commission + spread."""
     trades = len(group)
     if trades == 0:
         return None
     wins = (group["mfe_r"] >= target_r).sum()
-    losses = trades - wins
     win_rate = wins / trades
     avg_risk = group["risk"].mean()
-
-    # Gross EV per trade in R-multiples
     gross_ev_r = (win_rate * target_r) - ((1 - win_rate) * 1.0)
-    # Cost as fraction of risk (cost eats into every trade regardless of outcome)
     cost_in_r = cost_per_share / avg_risk if avg_risk > 0 else 0
-    # Net EV after costs
     net_ev_r = gross_ev_r - cost_in_r
     net_ev_dollar = net_ev_r * avg_risk
     total_dollar = net_ev_dollar * trades
-
     return {
         "trades": trades,
         "win_rate": win_rate,
@@ -270,7 +248,6 @@ def simulate_rr(group, target_r, cost_per_share=COST_PER_TRADE):
         "cost_r": round(cost_in_r, 4),
     }
 
-# Per-setup scenario table
 setups_list = filled.groupby("setup").filter(lambda x: len(x) >= 5)["setup"].unique()
 setups_list = sorted(setups_list)
 
@@ -296,9 +273,8 @@ for setup_name in setups_list:
 
 rr_df = pd.DataFrame(results_rows)
 
-# Show the best R:R for each setup (NET of costs)
 print("=" * 80)
-print("OPTIMAL R:R PER SETUP — NET OF COMMISSIONS + SPREAD")
+print("OPTIMAL R:R PER SETUP -- NET OF COMMISSIONS + SPREAD")
 print("=" * 80)
 best_rr = []
 for setup_name in setups_list:
@@ -321,9 +297,8 @@ for setup_name in setups_list:
 best_df = pd.DataFrame(best_rr).sort_values("net_EV(R)", ascending=False)
 print(best_df.to_string(index=False))
 
-# Full scenario grid for setups with positive NET EV at ANY R:R
 print("\n" + "=" * 80)
-print("FULL R:R GRID — SETUPS WITH POSITIVE NET EV AT ANY RATIO")
+print("FULL R:R GRID -- SETUPS WITH POSITIVE NET EV AT ANY RATIO")
 print("=" * 80)
 positive_setups = rr_df[rr_df["net_EV(R)"] > 0]["setup"].unique()
 for setup_name in sorted(positive_setups):
@@ -331,13 +306,11 @@ for setup_name in sorted(positive_setups):
     print(f"\n--- {setup_name} ---")
     print(subset[["R:R", "trades", "win_rate", "gross_EV(R)", "cost(R)", "net_EV(R)", "net_EV($)", "total_pnl"]].to_string(index=False))
 
-# Overall portfolio: what if ALL setups used their optimal R:R?
 print("\n" + "=" * 80)
 print("PORTFOLIO SIMULATION: EACH SETUP AT ITS OPTIMAL R:R (NET OF COSTS)")
 print("=" * 80)
 total_trades = 0
 total_pnl = 0
-total_costs = 0
 positive_setups_count = 0
 for _, row in best_df.iterrows():
     if row["net_EV(R)"] > 0:

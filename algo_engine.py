@@ -1073,23 +1073,26 @@ def analyze_bars(df: pd.DataFrame) -> dict:
 
 if __name__ == "__main__":
     import time
-    import yfinance as yf
+    from data_source import get_data_source
 
     ticker = "AAPL"
+    ds = get_data_source()
     print(f"Fetching 5-min data for {ticker}...")
-    df = yf.download(ticker, period="1d", interval="5m", progress=False)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    df = ds.fetch_historical(ticker)
+    if df is None or df.empty:
+        print("No data returned.")
+        import sys
+        sys.exit(1)
 
     start = time.perf_counter()
     result = analyze_bars(df)
     elapsed = (time.perf_counter() - start) * 1000
 
-    print(f"\n⚡ Analysis completed in {elapsed:.1f}ms")
+    print(f"\nAnalysis completed in {elapsed:.1f}ms")
     print(f"Day Type: {result['day_type']}")
     print(f"Market Cycle: {result['market_cycle']}")
     print(f"Action: {result['action']} (confidence: {result['confidence']:.0%})")
     print(f"Reasoning: {result['reasoning']}")
     print(f"\nTop Setups:")
     for s in result["setups"]:
-        print(f"  • {s['setup_name']} @ bar {s['entry_bar']} — {s['order_type']} @ ${s['entry_price']}")
+        print(f"  - {s['setup_name']} @ bar {s['entry_bar']} -- {s['order_type']} @ ${s['entry_price']}")
