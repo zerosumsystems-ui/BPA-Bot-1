@@ -1,8 +1,7 @@
 """
 data_source.py — Data Source Abstraction Layer
 
-Supports Databento (primary) and yFinance (fallback) for fetching
-5-minute OHLCV bars for US equities.
+Databento data source for fetching 5-minute OHLCV bars for US equities.
 
 Usage:
     from data_source import get_data_source
@@ -279,10 +278,7 @@ class DatabentoSource(DataSource):
         db_start = f"{s_str}T00:00:00"
         db_end = f"{e_str}T00:00:00"
 
-        # Only use 1-minute bars. The app needs 5-min resampled data everywhere
-        # (charts, backtests). Daily bars are useless and actively harmful: they
-        # "succeed" the fetch but fail downstream checks (e.g. >=10 bars/day),
-        # preventing the yFinance fallback from triggering.
+        # Only use 1-minute bars — the app resamples to 5-min everywhere.
         schemas_to_try = ["ohlcv-1m"]
 
         for schema in schemas_to_try:
@@ -545,17 +541,10 @@ def get_data_source(
     source_type: str = "databento",
     api_key: Optional[str] = None,
 ) -> DataSource:
-    """
-    Create a data source.
-    Tries Databento first (better data, longer history). Falls back to yFinance if no key.
-    """
+    """Create a Databento data source. Raises if no key or init fails."""
     databento_key = api_key or os.environ.get("DATABENTO_API_KEY", "")
 
-    if databento_key:
-        try:
-            return DatabentoSource(databento_key)
-        except Exception as e:
-            logger.warning(f"Databento init failed ({e}), falling back to yFinance")
+    if not databento_key:
+        raise RuntimeError("DATABENTO_API_KEY is not set")
 
-    logger.info("Using yFinance as data source (no Databento key or Databento failed)")
-    return YFinanceSource()
+    return DatabentoSource(databento_key)
