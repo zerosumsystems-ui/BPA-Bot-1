@@ -52,7 +52,16 @@ def _is_rate_limit(exc: Exception) -> bool:
 
 # ─────────────────────────── EXCHANGE MAPPING ────────────────────────────────
 
-# Major NYSE-listed S&P 500 stocks (everything else defaults to Nasdaq)
+# Dataset: XNAS.ITCH (Nasdaq TotalView-ITCH) covers ALL NMS securities,
+# including NYSE-listed stocks that trade on Nasdaq. OHLCV price data is
+# accurate for all symbols. Volume reflects only Nasdaq's share (~16-20%
+# of consolidated volume for NYSE primary-listed stocks) — acceptable for
+# price-action analysis but not for volume-based strategies.
+#
+# If consolidated volume is needed, migrate to DBEQ.BASIC / DBEQ.MAX
+# or supplement with XNYS.PILLAR for NYSE-primary stocks.
+
+# NYSE-primary S&P 500 stocks (retained for potential future dataset routing)
 NYSE_TICKERS = {
     "A", "AAL", "AAP", "ABBV", "ABT", "ACN", "ADBE", "ADI", "ADM", "ADP",
     "AEE", "AEP", "AES", "AFL", "AIG", "AIZ", "AJG", "ALB", "ALK", "ALL",
@@ -107,8 +116,12 @@ NYSE_TICKERS = {
 
 
 def get_dataset_for_ticker(ticker: str) -> str:
-    """Return the Databento dataset for a given ticker."""
-    # The $199/month Equities plan uses the XNAS.ITCH dataset.
+    """Return the Databento dataset for a given ticker.
+
+    Currently returns XNAS.ITCH for all tickers. NYSE-listed stocks trade
+    on Nasdaq under NMS rules, so OHLCV price data is available (volume
+    reflects only Nasdaq's portion of trading).
+    """
     return "XNAS.ITCH"
 
 
@@ -229,14 +242,18 @@ class DatabentoSource(DataSource):
         return None
 
     def _fetch_batch_with_retry(self, dataset: str, batch: list, schema: str,
-                                db_start: str, db_end: str):
+                                db_start: str, db_end: str, client=None):
         """
         Fetch a batch of tickers with retry + exponential backoff.
+        Accepts an optional client for thread-safe bulk operations.
         Returns DataFrame on success, None on failure.
         """
+        import re
+        _client = client or self._client
+
         for attempt in range(self._max_retries):
             try:
-                data = self._client.timeseries.get_range(
+                data = _client.timeseries.get_range(
                     dataset=dataset,
                     symbols=batch,
                     stype_in="raw_symbol",
@@ -247,6 +264,33 @@ class DatabentoSource(DataSource):
                 return data.to_df() if data else None
 
             except Exception as ex:
+                err_str = str(ex)
+
+                # Handle data_end_after_available_end: correct end date and retry once
+                if "data_end_after_available_end" in err_str:
+                    match = re.search(r"available up to '([^']+)'", err_str)
+                    if match:
+                        new_end_str = match.group(1).replace(" ", "T")
+                        logger.info(f"Databento bulk batch: data_end_after_available_end, retrying with {new_end_str}")
+                        try:
+                            data = _client.timeseries.get_range(
+                                dataset=dataset,
+                                symbols=batch,
+                                stype_in="raw_symbol",
+                                schema=schema,
+                                start=db_start,
+                                end=new_end_str,
+                            )
+                            return data.to_df() if data else None
+                        except Exception as retry_ex:
+                            logger.warning(f"Databento bulk batch retry with corrected end also failed: {retry_ex}")
+                            self._last_error_message = f"bulk_batch: {str(retry_ex)[:200]}"
+                            return None
+                    else:
+                        logger.warning(f"Could not parse available_end from: {err_str[:200]}")
+                        self._last_error_message = f"bulk_batch: {err_str[:200]}"
+                        return None
+
                 if _is_transient_error(ex):
                     if attempt < self._max_retries - 1:
                         wait = self._base_wait * (2 ** attempt)
@@ -254,15 +298,17 @@ class DatabentoSource(DataSource):
                             wait = min(wait * 2, 16)
                         logger.warning(
                             f"Databento bulk batch transient error (attempt {attempt + 1}/{self._max_retries}), "
-                            f"retrying in {wait}s: {str(ex)[:120]}"
+                            f"retrying in {wait}s: {err_str[:120]}"
                         )
                         time.sleep(wait)
                         continue
                     else:
-                        logger.error(f"Databento bulk batch failed after {self._max_retries} attempts: {str(ex)[:200]}")
+                        logger.error(f"Databento bulk batch failed after {self._max_retries} attempts: {err_str[:200]}")
+                        self._last_error_message = f"bulk_batch: {err_str[:200]}"
                         return None
                 else:
-                    logger.warning(f"Databento bulk batch non-transient error: {str(ex)[:200]}")
+                    logger.warning(f"Databento bulk batch non-transient error: {err_str[:200]}")
+                    self._last_error_message = f"bulk_batch: {err_str[:200]}"
                     return None
 
         return None
@@ -289,11 +335,10 @@ class DatabentoSource(DataSource):
         start_dt = datetime.datetime.fromisoformat(start)
         end_dt = datetime.datetime.fromisoformat(end)
         s_str = start_dt.strftime("%Y-%m-%d")
-        # Databento's end date is strictly exclusive — add 1 day
+        # Databento's end date is strictly exclusive — add 1 day.
+        # Do NOT clamp to today: the data_end_after_available_end handler
+        # in _fetch_with_retry will correct overshoot automatically.
         target_e = end_dt.date() + datetime.timedelta(days=1)
-        today_date = datetime.date.today()
-        if target_e > today_date:
-            target_e = today_date
         e_str = target_e.strftime("%Y-%m-%d")
         db_start = f"{s_str}T00:00:00"
         db_end = f"{e_str}T00:00:00"
@@ -386,7 +431,7 @@ class DatabentoSource(DataSource):
         if not self._client or not tickers:
             return pd.DataFrame()
 
-        dataset = "XNAS.ITCH"
+        dataset = get_dataset_for_ticker(tickers[0])
         schema = "ohlcv-1m"
         all_dfs = []
 
@@ -395,11 +440,10 @@ class DatabentoSource(DataSource):
         e_dt = datetime.datetime.fromisoformat(end)
         db_start = s_dt.strftime("%Y-%m-%dT00:00:00")
 
-        # Databento needs the end date to be exclusive/next day for full day coverage
+        # Databento's end date is exclusive — add 1 day for full coverage.
+        # Do NOT clamp to today: the data_end_after_available_end handler
+        # in _fetch_batch_with_retry will correct overshoot automatically.
         target_e = e_dt.date() + datetime.timedelta(days=1)
-        today = datetime.date.today()
-        if target_e > today:
-            target_e = today
         db_end = f"{target_e.strftime('%Y-%m-%d')}T00:00:00"
 
         # Split tickers into batches of 50 to avoid any API limits
@@ -409,16 +453,30 @@ class DatabentoSource(DataSource):
         logger.info(f"Databento bulk: fetching {len(tickers)} tickers in {len(batches)} batches")
 
         import concurrent.futures
+        import databento as db
 
         def fetch_batch(batch):
-            return self._fetch_batch_with_retry(dataset, batch, schema, db_start, db_end)
+            # Per-thread client to avoid sharing HTTP sessions across threads
+            thread_client = db.Historical(self._api_key)
+            return self._fetch_batch_with_retry(dataset, batch, schema, db_start, db_end, client=thread_client)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             results = list(executor.map(fetch_batch, batches))
 
+        succeeded = 0
+        failed = 0
         for df in results:
             if df is not None and not df.empty:
                 all_dfs.append(df)
+                succeeded += 1
+            else:
+                failed += 1
+
+        if failed > 0:
+            logger.warning(
+                f"Databento bulk: {failed}/{len(batches)} batches failed "
+                f"({succeeded} succeeded, covering ~{succeeded * batch_size} of {len(tickers)} tickers)"
+            )
 
         if not all_dfs:
             logger.error("Databento bulk: no data from any batch")
