@@ -51,6 +51,16 @@ grpV = "Visual"
 lineLen      = input.int(10,   "Level Line Length (bars)",    minval=3, maxval=30, group=grpV)
 showEMA      = input.bool(true,"Show 20 EMA",                group=grpV)
 showLegend   = input.bool(true,"Show Legend Table",           group=grpV)
+labelSizeIn  = input.string("Small", "Label Font Size",       options=["Tiny", "Small", "Normal", "Large", "Huge"], group=grpV)
+
+// Map font size input to PineScript constant
+labelSize = switch labelSizeIn
+    "Tiny"   => size.tiny
+    "Small"  => size.small
+    "Normal" => size.normal
+    "Large"  => size.large
+    "Huge"   => size.huge
+    => size.small
 
 // ══════════════════════════════════════════════════════════════
 // CORE
@@ -119,10 +129,10 @@ drawSetup(int idx, bool isLong, float entryP, float stopP, float rr, string name
         rrs = str.tostring(rr) + ":1"
         lbl = name + "\n" + (isLong ? "LONG" : "SHORT") + " — " + ord + " @ " + ep + "\nStop " + sp + " | Target " + tp + " | " + rrs
 
-        col      = isLong ? LONG_COL : SHORT_COL
+        bgCol    = isLong ? LONG_COL : SHORT_COL
         lblStyle = isLong ? label.style_label_up : label.style_label_down
         lblY     = isLong ? stopP : stopP
-        label.new(idx, lblY, lbl, style=lblStyle, color=color.new(col, 75), textcolor=col, size=size.small, tooltip=tip)
+        label.new(idx, lblY, lbl, style=lblStyle, color=bgCol, textcolor=color.black, size=labelSize, tooltip=tip)
     true
 
 // ══════════════════════════════════════════════════════════════
