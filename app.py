@@ -2939,29 +2939,19 @@ def render_backtest():
             start_str = start.strftime("%Y-%m-%d")
             end_str = end.strftime("%Y-%m-%d")
 
-            def _count_days(df):
-                if df is None or df.empty:
-                    return 0
-                idx = pd.to_datetime(df.index)
-                return len(set(idx.date))
-
-            # ── Phase 1: Fetch all ticker data in parallel ──
-            def _fetch_one(ticker):
-                """Fetch data for one ticker. Thread-safe."""
-                src = _init_data_source_v2()
-                df = None
-                err = None
-                try:
-                    df = src.fetch_historical(ticker, start_str, end_str)
-                except Exception as e:
-                    err = f"{ticker}: {src.name()} failed: {e}"
-                return ticker, df, err
-
-            import concurrent.futures
+            # ── Phase 1: Bulk-fetch all tickers in one Databento batch call ──
             progress_bar = st.progress(0, text="Fetching data...")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(bt_ticker_list), 8)) as pool:
-                results = list(pool.map(_fetch_one, bt_ticker_list))
-            fetched = {ticker: (ticker, df, err) for ticker, df, err in results}
+            bulk_df = pd.DataFrame()
+            try:
+                bulk_df = source.get_bulk_chart_data(bt_ticker_list, start_str, end_str)
+            except Exception as e:
+                st.error(f"Databento fetch failed: {e}")
+
+            # Split bulk result by symbol
+            fetched = {}
+            if not bulk_df.empty and "symbol" in bulk_df.columns:
+                for sym, group in bulk_df.groupby("symbol"):
+                    fetched[sym] = group.drop(columns=["symbol", "BarNumber"], errors="ignore")
 
             # ── Phase 2: Process results & run backtests ──
             all_trades = []
@@ -2971,9 +2961,7 @@ def render_backtest():
             for ti, bt_ticker in enumerate(bt_ticker_list):
                 progress_bar.progress((ti + 1) / len(bt_ticker_list), text=f"Backtesting {bt_ticker} ({ti+1}/{len(bt_ticker_list)})...")
 
-                _, full_df, fetch_err = fetched.get(bt_ticker, (bt_ticker, None, None))
-                if fetch_err:
-                    st.caption(fetch_err)
+                full_df = fetched.get(bt_ticker)
 
                 if full_df is None or full_df.empty:
                     st.caption(f"{bt_ticker}: no data")
