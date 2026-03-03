@@ -1,36 +1,36 @@
 // This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
 // © BPA Bot — Al Brooks Price Action
-// All 13 Profitable Setups Combined — Entries, Stops & Targets
+// All 13 Profitable Setups — Entries, Stops, Targets & Order Types
 
 //@version=6
-indicator("BPA: All Profitable Setups", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("BPA: All Profitable Setups", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
 
 // ══════════════════════════════════════════════════════════════
 // INPUTS
 // ══════════════════════════════════════════════════════════════
 
 // ── Setup Toggles ──
-grpA = "Tier A — Best Setups (1:1 R:R)"
-showLLDB     = input.bool(true, "Fade Lower Low Double Bottom",    group=grpA)
-showHHDT     = input.bool(true, "Fade Higher High Double Top",     group=grpA)
-showSellClx  = input.bool(true, "Fade Consecutive Sell Climaxes",  group=grpA)
-showBuyClx   = input.bool(true, "Fade Consecutive Buy Climaxes",   group=grpA)
-showBOPB     = input.bool(true, "Breakout Pullback",               group=grpA)
-showStairs   = input.bool(true, "Bear Stairs Reversal",            group=grpA)
+grpA = "Tier A — Best (1:1 R:R)"
+showLLDB     = input.bool(true, "Fade Lower Low Double Bottom — SHORT",  group=grpA)
+showHHDT     = input.bool(true, "Fade Higher High Double Top — LONG",    group=grpA)
+showSellClx  = input.bool(true, "Fade Consecutive Sell Climaxes — LONG", group=grpA)
+showBuyClx   = input.bool(true, "Fade Consecutive Buy Climaxes — SHORT", group=grpA)
+showBOPB     = input.bool(true, "Breakout Pullback — LONG",              group=grpA)
+showStairs   = input.bool(true, "Bear Stairs Reversal — LONG",           group=grpA)
 
-grpB = "Tier B — Standard Setups"
-showDT       = input.bool(true, "Double Top (1:1)",                group=grpB)
-showDB       = input.bool(true, "Double Bottom (0.75:1)",          group=grpB)
-showLHDT     = input.bool(true, "Lower High Double Top (1:1)",     group=grpB)
-showMMClx    = input.bool(true, "Fade Exhaustive Climax at MM (0.75:1)", group=grpB)
+grpB = "Tier B — Standard"
+showDT       = input.bool(true, "Double Top — SHORT (1:1)",               group=grpB)
+showDB       = input.bool(true, "Double Bottom — LONG (0.75:1)",          group=grpB)
+showLHDT     = input.bool(true, "Lower High Double Top — SHORT (1:1)",    group=grpB)
+showMMClx    = input.bool(true, "Exhaustive Climax at MM — SHORT (0.75:1)", group=grpB)
 
-grpC = "Tier C — Scalps"
-showHLDB     = input.bool(true, "Higher Low Double Bottom (1:1)",  group=grpC)
-showWB       = input.bool(true, "Wedge Bottom (0.5:1)",            group=grpC)
-showWT       = input.bool(true, "Wedge Top (0.5:1)",               group=grpC)
+grpC = "Tier C — Scalps (0.5:1)"
+showHLDB     = input.bool(true, "Higher Low Double Bottom — LONG (1:1)",  group=grpC)
+showWB       = input.bool(true, "Wedge Bottom — LONG (0.5:1)",            group=grpC)
+showWT       = input.bool(true, "Wedge Top — SHORT (0.5:1)",              group=grpC)
 
 // ── Detection Parameters ──
-grpP = "Parameters"
+grpP = "Detection"
 swingLB      = input.int(3,    "Swing Lookback",              minval=2, maxval=10, group=grpP)
 tolerance    = input.float(0.3,"DB/DT Price Tolerance %",     minval=0.05, maxval=2.0, step=0.05, group=grpP)
 clxLB        = input.int(10,   "Climax Lookback Bars",        minval=5, maxval=20, group=grpP)
@@ -50,6 +50,7 @@ exhMult      = input.float(2.5,"MM Exhaustion Size (x avg)",  minval=1.5, maxval
 grpV = "Visual"
 lineLen      = input.int(10,   "Level Line Length (bars)",    minval=3, maxval=30, group=grpV)
 showEMA      = input.bool(true,"Show 20 EMA",                group=grpV)
+showLegend   = input.bool(true,"Show Legend Table",           group=grpV)
 
 // ══════════════════════════════════════════════════════════════
 // CORE
@@ -57,26 +58,71 @@ showEMA      = input.bool(true,"Show 20 EMA",                group=grpV)
 ema20    = ta.ema(close, 20)
 avgRange = ta.sma(high - low, 20)
 tick     = syminfo.mintick
+fmt      = format.mintick
 
 plot(showEMA ? ema20 : na, "EMA 20", color=color.new(#f59e0b, 30), linewidth=2)
 
-// Colors
-var color GREEN = #39ff14
-var color RED   = #ff2e63
-var color CYAN  = #00e5ff
+var color ENTRY_COL  = #00e5ff   // cyan — entry level
+var color STOP_COL   = #ff2e63   // red  — stop loss
+var color TARGET_COL = #39ff14   // green — profit target
+var color LONG_COL   = #39ff14   // green labels for longs
+var color SHORT_COL  = #ff2e63   // red labels for shorts
 
 // ══════════════════════════════════════════════════════════════
-// HELPER — draw entry / stop / target levels
+// LEGEND TABLE
 // ══════════════════════════════════════════════════════════════
-drawLevels(int idx, bool isLong, float entryP, float stopP, float rr, string lbl, color col) =>
+if barstate.islast and showLegend
+    var tbl = table.new(position.top_right, 2, 6, frame_color=color.new(color.white, 70), frame_width=1, border_color=color.new(color.white, 85), border_width=1)
+    table.cell(tbl, 0, 0, "BPA Setups", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 60), text_halign=text.align_left)
+    table.cell(tbl, 1, 0, "All Stop Orders", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 60), text_halign=text.align_left)
+    table.cell(tbl, 0, 1, "——— Cyan", text_color=ENTRY_COL, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 1, 1, "Entry Price", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 0, 2, "- - - Red", text_color=STOP_COL, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 1, 2, "Stop Loss", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 0, 3, "- - - Green", text_color=TARGET_COL, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 1, 3, "Profit Target", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 0, 4, "Red Box", text_color=STOP_COL, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 1, 4, "Risk Zone", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 0, 5, "Green Box", text_color=TARGET_COL, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+    table.cell(tbl, 1, 5, "Reward Zone", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 40), text_halign=text.align_left)
+
+// ══════════════════════════════════════════════════════════════
+// HELPER — draw entry / stop / target with full detail
+//
+// Every profitable setup in the BPA system uses STOP orders:
+//   LONG  = "Buy Stop"  → order sits above market, fills when price rises to it
+//   SHORT = "Sell Stop"  → order sits below market, fills when price drops to it
+//
+// Entry: 1 tick beyond the signal bar (high+tick for longs, low-tick for shorts)
+// Stop:  opposite side of the signal bar
+// Target: entry + (R:R * risk) in trade direction
+// ══════════════════════════════════════════════════════════════
+drawSetup(int idx, bool isLong, float entryP, float stopP, float rr, string name, string tip) =>
     risk = math.abs(entryP - stopP)
     if risk > 0
         targetP = isLong ? entryP + rr * risk : entryP - rr * risk
-        line.new(idx, entryP,  idx + lineLen, entryP,  color=CYAN,  width=2)
-        line.new(idx, stopP,   idx + lineLen, stopP,   color=RED,   width=1, style=line.style_dashed)
-        line.new(idx, targetP, idx + lineLen, targetP, color=GREEN, width=1, style=line.style_dashed)
+        ord     = isLong ? "Buy Stop" : "Sell Stop"
+
+        // ── Lines: Entry / Stop / Target ──
+        line.new(idx, entryP,  idx + lineLen, entryP,  color=ENTRY_COL,  width=2)
+        line.new(idx, stopP,   idx + lineLen, stopP,   color=STOP_COL,   width=1, style=line.style_dashed)
+        line.new(idx, targetP, idx + lineLen, targetP, color=TARGET_COL, width=1, style=line.style_dashed)
+
+        // ── Shaded zones ──
+        box.new(idx, math.max(entryP, stopP), idx + lineLen, math.min(entryP, stopP), bgcolor=color.new(STOP_COL, 92), border_color=na)
+        box.new(idx, math.max(entryP, targetP), idx + lineLen, math.min(entryP, targetP), bgcolor=color.new(TARGET_COL, 92), border_color=na)
+
+        // ── Main label: Name + Direction + Order Type + Prices + R:R ──
+        ep  = str.tostring(entryP, fmt)
+        sp  = str.tostring(stopP, fmt)
+        tp  = str.tostring(targetP, fmt)
+        rrs = str.tostring(rr) + ":1"
+        lbl = name + "\n" + (isLong ? "LONG" : "SHORT") + " — " + ord + " @ " + ep + "\nStop " + sp + " | Target " + tp + " | " + rrs
+
+        col      = isLong ? LONG_COL : SHORT_COL
         lblStyle = isLong ? label.style_label_up : label.style_label_down
-        label.new(idx, stopP, lbl, style=lblStyle, color=color.new(col, 75), textcolor=col, size=size.small)
+        lblY     = isLong ? stopP : stopP
+        label.new(idx, lblY, lbl, style=lblStyle, color=color.new(col, 75), textcolor=col, size=size.small, tooltip=tip)
     true
 
 // ══════════════════════════════════════════════════════════════
@@ -98,7 +144,14 @@ for j = 1 to swingLB
         break
 
 // ══════════════════════════════════════════════════════════════
-// 1–3. DOUBLE BOTTOM  (DB → Long 0.75R | HL DB → Long 1R | LL DB Fade → Short 1R)
+// 1–3. DOUBLE BOTTOM FAMILY
+//
+// Detection: Two swing lows at similar price level (within tolerance %).
+// Signal bar: The bar at the second swing low.
+// Variants:
+//   Plain DB   → 2nd low ≈ 1st low → buyers held → LONG via Buy Stop
+//   Higher Low → 2nd low > 1st low → buyers stronger → LONG via Buy Stop
+//   Lower Low  → 2nd low < 1st low → sellers winning → SHORT via Sell Stop (fade)
 // ══════════════════════════════════════════════════════════════
 var float dbLo1 = na
 var float dbLo2 = na
@@ -118,20 +171,27 @@ dbIdx     = bar_index - swingLB
 dbHi      = high[swingLB]
 dbLo      = low[swingLB]
 
-// Double Bottom → Long, 0.75 R:R
+// Double Bottom → LONG, 0.75:1 R:R
 if dbFired and dbPlain and showDB
-    drawLevels(dbIdx, true, dbHi + tick, dbLo - tick, 0.75, "DB\n0.75R", GREEN)
+    drawSetup(dbIdx, true, dbHi + tick, dbLo - tick, 0.75, "DOUBLE BOTTOM", "Two equal swing lows held support. Buyers defended the level.\nBuy Stop 1 tick above signal bar high. Stop below signal bar low.\n0.75:1 R:R — Tier B")
 
-// Higher Low DB → Long, 1.0 R:R
+// Higher Low Double Bottom → LONG, 1.0:1 R:R
 if dbFired and dbHL and showHLDB
-    drawLevels(dbIdx, true, dbHi + tick, dbLo - tick, 1.0, "HL DB\n1R", GREEN)
+    drawSetup(dbIdx, true, dbHi + tick, dbLo - tick, 1.0, "HIGHER LOW DB", "Second swing low is HIGHER than the first. Buyers getting stronger.\nBuy Stop 1 tick above signal bar high. Stop below signal bar low.\n1:1 R:R — Tier C")
 
-// Fade Lower Low DB → Short, 1.0 R:R
+// Fade Lower Low Double Bottom → SHORT, 1.0:1 R:R
 if dbFired and dbLL and showLLDB
-    drawLevels(dbIdx, false, dbLo - tick, dbHi + tick, 1.0, "LL DB\nFADE 1R", RED)
+    drawSetup(dbIdx, false, dbLo - tick, dbHi + tick, 1.0, "FADE LL DOUBLE BOTTOM", "Second swing low BROKE LOWER — sellers winning despite DB appearance.\nSell Stop 1 tick below signal bar low. Stop above signal bar high.\n1:1 R:R — Tier A")
 
 // ══════════════════════════════════════════════════════════════
-// 4–6. DOUBLE TOP  (DT → Short 1R | LH DT → Short 1R | HH DT Fade → Long 1R)
+// 4–6. DOUBLE TOP FAMILY
+//
+// Detection: Two swing highs at similar price level (within tolerance %).
+// Signal bar: The bar at the second swing high.
+// Variants:
+//   Plain DT    → 2nd high ≈ 1st high → sellers held → SHORT via Sell Stop
+//   Lower High  → 2nd high < 1st high → sellers stronger → SHORT via Sell Stop
+//   Higher High → 2nd high > 1st high → buyers winning → LONG via Buy Stop (fade)
 // ══════════════════════════════════════════════════════════════
 var float dtHi1 = na
 var float dtHi2 = na
@@ -151,20 +211,25 @@ dtIdx     = bar_index - swingLB
 dtHi      = high[swingLB]
 dtLo      = low[swingLB]
 
-// Double Top → Short, 1.0 R:R
+// Double Top → SHORT, 1.0:1 R:R
 if dtFired and dtPlain and showDT
-    drawLevels(dtIdx, false, dtLo - tick, dtHi + tick, 1.0, "DT\n1R", RED)
+    drawSetup(dtIdx, false, dtLo - tick, dtHi + tick, 1.0, "DOUBLE TOP", "Two equal swing highs held resistance. Sellers defended the level.\nSell Stop 1 tick below signal bar low. Stop above signal bar high.\n1:1 R:R — Tier B")
 
-// Lower High DT → Short, 1.0 R:R
+// Lower High Double Top → SHORT, 1.0:1 R:R
 if dtFired and dtLH and showLHDT
-    drawLevels(dtIdx, false, dtLo - tick, dtHi + tick, 1.0, "LH DT\n1R", RED)
+    drawSetup(dtIdx, false, dtLo - tick, dtHi + tick, 1.0, "LOWER HIGH DT", "Second swing high is LOWER than the first. Sellers getting stronger.\nSell Stop 1 tick below signal bar low. Stop above signal bar high.\n1:1 R:R — Tier B")
 
-// Fade Higher High DT → Long, 1.0 R:R
+// Fade Higher High Double Top → LONG, 1.0:1 R:R
 if dtFired and dtHH and showHHDT
-    drawLevels(dtIdx, true, dtHi + tick, dtLo - tick, 1.0, "HH DT\nFADE 1R", GREEN)
+    drawSetup(dtIdx, true, dtHi + tick, dtLo - tick, 1.0, "FADE HH DOUBLE TOP", "Second swing high BROKE HIGHER — buyers winning despite DT appearance.\nBuy Stop 1 tick above signal bar high. Stop below signal bar low.\n1:1 R:R — Tier A")
 
 // ══════════════════════════════════════════════════════════════
-// 7. WEDGE BOTTOM  (Long, 0.5 R:R)
+// 7. WEDGE BOTTOM (3-Push Reversal)
+//
+// Detection: 3 consecutive LOWER swing lows (sw3 < sw2 < sw1).
+// Each push down is weaker — selling exhaustion.
+// Signal bar: The bar at the 3rd push (lowest swing low).
+// Entry: Buy Stop above signal bar high.
 // ══════════════════════════════════════════════════════════════
 var float wb1 = na
 var float wb2 = na
@@ -177,10 +242,15 @@ if isSwingLow
 wbFired = isSwingLow and not na(wb1) and not na(wb2) and not na(wb3) and wb3 < wb2 and wb2 < wb1
 
 if wbFired and showWB
-    drawLevels(dbIdx, true, dbHi + tick, dbLo - tick, 0.5, "WB\n0.5R", GREEN)
+    drawSetup(dbIdx, true, dbHi + tick, dbLo - tick, 0.5, "WEDGE BOTTOM", "3 consecutive lower swing lows — selling exhaustion after 3 pushes down.\nBuy Stop 1 tick above 3rd push signal bar. Stop below signal bar low.\n0.5:1 R:R (scalp) — Tier C")
 
 // ══════════════════════════════════════════════════════════════
-// 8. WEDGE TOP  (Short, 0.5 R:R)
+// 8. WEDGE TOP (3-Push Reversal)
+//
+// Detection: 3 consecutive HIGHER swing highs (sw3 > sw2 > sw1).
+// Each push up is weaker — buying exhaustion.
+// Signal bar: The bar at the 3rd push (highest swing high).
+// Entry: Sell Stop below signal bar low.
 // ══════════════════════════════════════════════════════════════
 var float wt1 = na
 var float wt2 = na
@@ -193,10 +263,15 @@ if isSwingHigh
 wtFired = isSwingHigh and not na(wt1) and not na(wt2) and not na(wt3) and wt3 > wt2 and wt2 > wt1
 
 if wtFired and showWT
-    drawLevels(dtIdx, false, dtLo - tick, dtHi + tick, 0.5, "WT\n0.5R", RED)
+    drawSetup(dtIdx, false, dtLo - tick, dtHi + tick, 0.5, "WEDGE TOP", "3 consecutive higher swing highs — buying exhaustion after 3 pushes up.\nSell Stop 1 tick below 3rd push signal bar. Stop above signal bar high.\n0.5:1 R:R (scalp) — Tier C")
 
 // ══════════════════════════════════════════════════════════════
-// 9. FADE CONSECUTIVE SELL CLIMAXES  (Long, 1.0 R:R)
+// 9. FADE CONSECUTIVE SELL CLIMAXES
+//
+// Detection: 3+ massive bear bars (> 1.5x avg range) in last 10 bars.
+// Parabolic selling is exhausted. Current bar closes bullish above midpoint.
+// Signal bar: The bull reversal bar after the climax sequence.
+// Entry: Buy Stop above reversal bar high.
 // ══════════════════════════════════════════════════════════════
 isBearClx(idx) =>
     rng = high[idx] - low[idx]
@@ -217,10 +292,15 @@ if scOnce
     scLast := bar_index
 
 if scOnce and showSellClx
-    drawLevels(bar_index, true, high + tick, low - tick, 1.0, "SELL CLX\nFADE 1R", GREEN)
+    drawSetup(bar_index, true, high + tick, low - tick, 1.0, "FADE SELL CLIMAXES", str.tostring(bearClxN) + " parabolic bear bars exhausted sellers — reversal expected.\nBuy Stop 1 tick above bull reversal bar. Stop below reversal bar low.\n1:1 R:R — Tier A")
 
 // ══════════════════════════════════════════════════════════════
-// 10. FADE CONSECUTIVE BUY CLIMAXES  (Short, 1.0 R:R)
+// 10. FADE CONSECUTIVE BUY CLIMAXES
+//
+// Detection: 3+ massive bull bars (> 1.5x avg range) in last 10 bars.
+// Parabolic buying is exhausted. Current bar closes bearish below midpoint.
+// Signal bar: The bear reversal bar after the climax sequence.
+// Entry: Sell Stop below reversal bar low.
 // ══════════════════════════════════════════════════════════════
 isBullClx(idx) =>
     rng = high[idx] - low[idx]
@@ -241,10 +321,16 @@ if bcOnce
     bcLast := bar_index
 
 if bcOnce and showBuyClx
-    drawLevels(bar_index, false, low - tick, high + tick, 1.0, "BUY CLX\nFADE 1R", RED)
+    drawSetup(bar_index, false, low - tick, high + tick, 1.0, "FADE BUY CLIMAXES", str.tostring(bullClxN) + " parabolic bull bars exhausted buyers — reversal expected.\nSell Stop 1 tick below bear reversal bar. Stop above reversal bar high.\n1:1 R:R — Tier A")
 
 // ══════════════════════════════════════════════════════════════
-// 11. BREAKOUT PULLBACK  (Long, 1.0 R:R)
+// 11. BREAKOUT PULLBACK
+//
+// Detection: Strong bull breakout 2 bars ago broke above consolidation base.
+// Current bar pulls back to test the old base top as support.
+// Bar closes in upper half = buyers defending the breakout level.
+// Signal bar: The current pullback test bar.
+// Entry: Buy Stop above test bar high.
 // ══════════════════════════════════════════════════════════════
 bpTop   = ta.highest(high, baseLB - baseOff)[baseOff]
 bpBot   = ta.lowest(low, baseLB - baseOff)[baseOff]
@@ -261,10 +347,16 @@ if bpOnce
     bpLast := bar_index
 
 if bpOnce and showBOPB
-    drawLevels(bar_index, true, high + tick, low - tick, 1.0, "BO PB\n1R", GREEN)
+    drawSetup(bar_index, true, high + tick, low - tick, 1.0, "BREAKOUT PULLBACK", "Strong breakout retesting old resistance as new support.\nBuyers defended the breakout level (bar closed in upper half).\nBuy Stop 1 tick above test bar. Stop below test bar low.\n1:1 R:R — Tier A")
 
 // ══════════════════════════════════════════════════════════════
-// 12. BEAR STAIRS REVERSAL  (Long, 1.0 R:R)
+// 12. BEAR STAIRS REVERSAL (3rd/4th Push)
+//
+// Detection: 3+ descending swing lows (staircase pattern) in lookback.
+// Sellers exhausted after multiple pushes down.
+// Current bar: Strong bull reversal bar (closes bullish, body > 50% of range).
+// Signal bar: The bull reversal bar.
+// Entry: Buy Stop above reversal bar high.
 // ══════════════════════════════════════════════════════════════
 stMinima = 0
 for j = 2 to stairLB - 2
@@ -284,10 +376,16 @@ if stOnce
     stLast := bar_index
 
 if stOnce and showStairs
-    drawLevels(bar_index, true, high + tick, low - tick, 1.0, "STAIRS\n" + str.tostring(stMinima) + "P 1R", GREEN)
+    drawSetup(bar_index, true, high + tick, low - tick, 1.0, "BEAR STAIRS REVERSAL", str.tostring(stMinima) + " descending pushes exhausted — strong bull reversal bar.\nBuy Stop 1 tick above reversal bar. Stop below reversal bar low.\n1:1 R:R — Tier A")
 
 // ══════════════════════════════════════════════════════════════
-// 13. EXHAUSTIVE BULL CLIMAX AT MEASURED MOVE  (Short, 0.75 R:R)
+// 13. EXHAUSTIVE BULL CLIMAX AT MEASURED MOVE
+//
+// Detection: Initial spike establishes a size. Price hits measured move target
+// (spike doubled from its high) with a massive exhaustion bar (> 2.5x avg)
+// that closes in the lower half = reversal.
+// Signal bar: The exhaustion climax bar at the measured move target.
+// Entry: Sell Stop below climax bar low.
 // ══════════════════════════════════════════════════════════════
 mmSpkLo  = ta.lowest(low, spkBars)[trendWin - spkBars]
 mmSpkHi  = ta.highest(high, spkBars)[trendWin - spkBars]
@@ -306,15 +404,15 @@ if mmOnce
     mmLast := bar_index
 
 if mmOnce and showMMClx
-    drawLevels(bar_index, false, low - tick, high + tick, 0.75, "MM CLX\n0.75R", RED)
+    drawSetup(bar_index, false, low - tick, high + tick, 0.75, "EXHAUSTIVE CLIMAX AT MM", "Hit measured move target with massive exhaustion bar closing weak.\nSell Stop 1 tick below climax bar. Stop above climax bar high.\n0.75:1 R:R — Tier B")
 
-// MM target reference
+// MM target reference line
 plot(showMMClx and mmSpkSz > 0 and close > ema20 ? mmTarget : na, "MM Target", color=color.new(#f59e0b, 60), linewidth=1, style=plot.style_cross)
 
 // ══════════════════════════════════════════════════════════════
 // ALERTS
 // ══════════════════════════════════════════════════════════════
-anyLong = (dbFired and dbPlain and showDB) or (dbFired and dbHL and showHLDB) or (dtFired and dtHH and showHHDT) or (wbFired and showWB) or (scOnce and showSellClx) or (bpOnce and showBOPB) or (stOnce and showStairs)
+anyLong  = (dbFired and dbPlain and showDB) or (dbFired and dbHL and showHLDB) or (dtFired and dtHH and showHHDT) or (wbFired and showWB) or (scOnce and showSellClx) or (bpOnce and showBOPB) or (stOnce and showStairs)
 anyShort = (dbFired and dbLL and showLLDB) or (dtFired and dtPlain and showDT) or (dtFired and dtLH and showLHDT) or (wtFired and showWT) or (bcOnce and showBuyClx) or (mmOnce and showMMClx)
 
 alertcondition(anyLong,  "BPA Long Signal",  "BPA profitable LONG setup detected")
