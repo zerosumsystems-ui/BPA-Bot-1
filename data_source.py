@@ -331,6 +331,13 @@ class DatabentoSource(DataSource):
                 if df.empty:
                     continue
 
+                # Convert to US/Eastern BEFORE resampling so 5-min bars
+                # align to market time (9:30, 9:35, …) not UTC boundaries.
+                if df.index.tzinfo is None:
+                    df.index = df.index.tz_localize("UTC").tz_convert("US/Eastern")
+                else:
+                    df.index = df.index.tz_convert("US/Eastern")
+
                 # Resample to 5-minute bars
                 df = df.resample("5min").agg({
                     "Open": "first",
@@ -341,12 +348,6 @@ class DatabentoSource(DataSource):
                 }).dropna()
 
                 if not df.empty:
-                    # Ensure timezone is US/Eastern for RTH filtering
-                    if df.index.tzinfo is None:
-                        df.index = df.index.tz_localize("UTC").tz_convert("US/Eastern")
-                    else:
-                        df.index = df.index.tz_convert("US/Eastern")
-
                     # Filter to Regular Trading Hours (RTH)
                     df = df.between_time("09:30", "15:59")
 
