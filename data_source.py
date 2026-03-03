@@ -335,10 +335,15 @@ class DatabentoSource(DataSource):
         start_dt = datetime.datetime.fromisoformat(start)
         end_dt = datetime.datetime.fromisoformat(end)
         s_str = start_dt.strftime("%Y-%m-%d")
-        # Databento's end date is strictly exclusive — add 1 day.
-        # Do NOT clamp to today: the data_end_after_available_end handler
-        # in _fetch_with_retry will correct overshoot automatically.
+        # Databento's end date is strictly exclusive — add 1 day so that
+        # a request ending on "today" still includes today's bars.
+        # Clamp to tomorrow at most to avoid data_end_after_available_end
+        # on every single request (the handler in _fetch_with_retry is a
+        # safety net, not the primary path).
         target_e = end_dt.date() + datetime.timedelta(days=1)
+        max_end = datetime.date.today() + datetime.timedelta(days=1)
+        if target_e > max_end:
+            target_e = max_end
         e_str = target_e.strftime("%Y-%m-%d")
         db_start = f"{s_str}T00:00:00"
         db_end = f"{e_str}T00:00:00"
@@ -441,9 +446,12 @@ class DatabentoSource(DataSource):
         db_start = s_dt.strftime("%Y-%m-%dT00:00:00")
 
         # Databento's end date is exclusive — add 1 day for full coverage.
-        # Do NOT clamp to today: the data_end_after_available_end handler
-        # in _fetch_batch_with_retry will correct overshoot automatically.
+        # Clamp to tomorrow to avoid triggering data_end_after_available_end
+        # on every request (the handler in _fetch_batch_with_retry is a safety net).
         target_e = e_dt.date() + datetime.timedelta(days=1)
+        max_end = datetime.date.today() + datetime.timedelta(days=1)
+        if target_e > max_end:
+            target_e = max_end
         db_end = f"{target_e.strftime('%Y-%m-%d')}T00:00:00"
 
         # Split tickers into batches of 50 to avoid any API limits
