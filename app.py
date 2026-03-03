@@ -827,9 +827,8 @@ def get_databento_key() -> str:
 @st.cache_resource
 def _init_data_source_v2():
     """Initialize the Databento data source once per app session."""
-    source_type = os.environ.get("DATA_SOURCE", "auto")
     db_key = get_databento_key()
-    return get_data_source(source_type, api_key=db_key)
+    return get_data_source(api_key=db_key)
 
 
 # ─────────────────────────── S&P 500 LIST ────────────────────────────────────
@@ -2277,8 +2276,11 @@ def render_sidebar():
         st.metric("Training", f"{count} / 100")
         st.progress(min(count / 100, 1.0))
 
-        source = _init_data_source_v2()
-        st.caption(f"Source: {source.name()}")
+        try:
+            source = _init_data_source_v2()
+            st.caption(f"Source: {source.name()}")
+        except Exception as e:
+            st.error(f"Data source error: {e}")
 
         # ── Ask the Bot (Teacher Workflow) ──
         st.markdown("### Chat")
@@ -2850,19 +2852,11 @@ def render_scanner():
             end_date = scan_date.strftime("%Y-%m-%d")
 
             bulk_df = pd.DataFrame()
-
-            db_key = get_databento_key()
-            if db_key:
-                try:
-                    from data_source import get_data_source as _get_ds
-                    ds = _get_ds(api_key=db_key)
-                    if hasattr(ds, 'get_bulk_chart_data'):
-                        bulk_df = ds.get_bulk_chart_data(tickers, start_date, end_date)
-                except Exception as e:
-                    st.error(f"Databento unavailable: {e}")
-                    return
-            else:
-                st.error("DATABENTO_API_KEY is not set.")
+            try:
+                ds = _init_data_source_v2()
+                bulk_df = ds.get_bulk_chart_data(tickers, start_date, end_date)
+            except Exception as e:
+                st.error(f"Databento unavailable: {e}")
                 return
 
             if bulk_df.empty:
@@ -3333,6 +3327,7 @@ def render_backtest_daily():
 
             required = ["Open", "High", "Low", "Close"]
             if not all(c in df.columns for c in required):
+                st.caption(f"{sym}: missing OHLC columns ({list(df.columns)})")
                 continue
 
             df = df.dropna(subset=required)
