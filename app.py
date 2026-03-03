@@ -25,7 +25,6 @@ from data_source import get_data_source
 from google import genai
 
 # ─────────────────────────── CONFIG ──────────────────────────────────────────
-
 st.set_page_config(
     page_title="BPA Bot | Al Brooks Price Action",
     page_icon="",
