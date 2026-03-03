@@ -3285,7 +3285,7 @@ def render_backtest():
 # ─────────────────────────── DAILY BACKTEST TAB ──────────────────────────────
 
 def render_backtest_daily():
-    """Daily-chart backtesting — uses daily bars so yFinance can go back years."""
+    """Daily-chart backtesting — uses Databento daily bars."""
     from backtester import run_daily_backtest, trades_to_dataframe
 
     c1, c2 = st.columns([2, 1])
@@ -3320,11 +3320,7 @@ def render_backtest_daily():
 
     if run_btn:
 
-        try:
-            import yfinance as yf
-        except ImportError:
-            st.error("yfinance is required for daily backtesting. Install it with: pip install yfinance")
-            return
+        source = _init_data_source_v2()
 
         all_trades = []
         ticker_summaries = []
@@ -3335,7 +3331,7 @@ def render_backtest_daily():
         for ti, sym in enumerate(dt_ticker_list):
             progress_bar.progress((ti) / len(dt_ticker_list), text=f"Backtesting {sym} ({ti+1}/{len(dt_ticker_list)})...")
             try:
-                df = yf.download(sym, period=dt_years, interval="1d", progress=False)
+                df = source.fetch_daily(sym, period=dt_years)
             except Exception as e:
                 st.caption(f"{sym}: failed to fetch data ({e})")
                 continue
