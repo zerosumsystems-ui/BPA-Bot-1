@@ -33,384 +33,587 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Design System (Spotify dark + Monzo cards + Zara whitespace) ──
-_CYBER_LIME = "#39ff14"
-_ELECTRIC_CRIMSON = "#ff2e63"
-_NEON_BLUE = "#00e5ff"
-_GLASS_BG = "rgba(17, 24, 39, 0.55)"
-_GLASS_BORDER = "rgba(255, 255, 255, 0.06)"
-_SURFACE_1 = "rgba(17, 24, 39, 0.4)"   # lightest glass layer
-_SURFACE_2 = "rgba(17, 24, 39, 0.6)"   # mid glass layer
-_SURFACE_3 = "rgba(10, 14, 23, 0.85)"  # deepest layer (sidebar)
+# ── Design System (Apple — SF Pro, depth, precision) ──
+_CYBER_LIME = "#34C759"          # Apple system green
+_ELECTRIC_CRIMSON = "#FF3B30"    # Apple system red
+_NEON_BLUE = "#007AFF"           # Apple system blue
+_GLASS_BG = "rgba(255, 255, 255, 0.72)"
+_GLASS_BORDER = "rgba(0, 0, 0, 0.04)"
+_SURFACE_1 = "#ffffff"
+_SURFACE_2 = "#f5f5f7"
+_SURFACE_3 = "#fbfbfd"
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
-    /* ══════════════════════ GLOBAL RESET ══════════════════════ */
+    /* ══════════ APPLE DESIGN TOKENS ══════════ */
+    :root {
+        --apple-blue: #007AFF;
+        --apple-blue-hover: #0066d6;
+        --apple-green: #34C759;
+        --apple-red: #FF3B30;
+        --apple-orange: #FF9500;
+        --apple-purple: #AF52DE;
+        --apple-teal: #5AC8FA;
+        --apple-gray-1: #1d1d1f;
+        --apple-gray-2: #424245;
+        --apple-gray-3: #6e6e73;
+        --apple-gray-4: #86868b;
+        --apple-gray-5: #aeaeb2;
+        --apple-gray-6: #d2d2d7;
+        --apple-bg: #f5f5f7;
+        --apple-card: #ffffff;
+        --apple-sidebar: #fbfbfd;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+        --shadow-md: 0 2px 8px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+        --shadow-lg: 0 4px 16px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.03);
+        --shadow-xl: 0 8px 32px rgba(0,0,0,0.08), 0 4px 8px rgba(0,0,0,0.04);
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+        --radius-xl: 20px;
+        --ease-apple: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* ══════════ GLOBAL FOUNDATION ══════════ */
     html, body, [class*="css"] {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif !important;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
     }
     .main .block-container {
-        padding: 2.5rem 3rem 3rem 3rem;
-        max-width: 1320px;
+        padding: 2rem 2.5rem 3rem 2.5rem;
+        max-width: 1280px;
     }
     .stApp {
-        background: #0a0e17;
-        background-image:
-            radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0, 229, 255, 0.03) 0%, transparent 60%),
-            radial-gradient(ellipse 60% 40% at 80% 100%, rgba(57, 255, 20, 0.02) 0%, transparent 50%);
+        background: var(--apple-bg);
     }
 
-    /* ══════════════════════ SIDEBAR — Spotify dark panel ══════════════════════ */
+    /* ══════════ SIDEBAR — macOS Finder style ══════════ */
     section[data-testid="stSidebar"] {
-        background: rgba(10, 14, 23, 0.92) !important;
-        backdrop-filter: blur(24px) saturate(180%);
-        -webkit-backdrop-filter: blur(24px) saturate(180%);
-        border-right: 1px solid rgba(255, 255, 255, 0.04);
+        background: var(--apple-sidebar) !important;
+        backdrop-filter: blur(40px) saturate(200%);
+        -webkit-backdrop-filter: blur(40px) saturate(200%);
+        border-right: 0.5px solid rgba(0, 0, 0, 0.08);
+    }
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.5rem;
     }
     section[data-testid="stSidebar"] .stMarkdown p,
     section[data-testid="stSidebar"] .stMarkdown li,
     section[data-testid="stSidebar"] label {
-        color: #8b95a5 !important;
+        color: var(--apple-gray-3) !important;
         font-size: 0.82rem;
-        line-height: 1.6;
+        line-height: 1.55;
     }
     section[data-testid="stSidebar"] .stMarkdown h1,
     section[data-testid="stSidebar"] .stMarkdown h2,
     section[data-testid="stSidebar"] .stMarkdown h3 {
-        color: #e2e8f0 !important;
-        font-size: 0.75rem !important;
-        font-weight: 700 !important;
+        color: var(--apple-gray-4) !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
         text-transform: uppercase !important;
-        letter-spacing: 0.1em !important;
-        margin-top: 1.5rem !important;
-        margin-bottom: 0.5rem !important;
-        padding-bottom: 0.4rem;
-        border-bottom: 1px solid rgba(255,255,255,0.06);
+        letter-spacing: 0.06em !important;
+        margin-top: 1.8rem !important;
+        margin-bottom: 0.6rem !important;
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+    section[data-testid="stSidebar"] [data-testid="stMetric"] {
+        background: rgba(0, 0, 0, 0.02) !important;
+        box-shadow: none;
+        border-radius: var(--radius-md) !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stMetric"]:hover {
+        transform: none;
+        box-shadow: none;
     }
 
-    /* ══════════════════════ TABS — Discord-style clear categories ══════════════════════ */
+    /* ══════════ TABS — Apple segmented control (pixel perfect) ══════════ */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 2px;
-        background: rgba(17, 24, 39, 0.35);
-        border-radius: 10px;
-        padding: 3px;
-        border: 1px solid rgba(255, 255, 255, 0.04);
+        gap: 0;
+        background: rgba(118, 118, 128, 0.08);
+        border-radius: var(--radius-sm);
+        padding: 2px;
+        border: none;
+        margin-bottom: 1.5rem;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 8px 20px;
-        font-weight: 600;
+        padding: 7px 16px;
+        font-weight: 500;
         font-size: 0.8rem;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #5b6478 !important;
-        border-radius: 8px;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        border: 1px solid transparent;
+        letter-spacing: -0.008em;
+        text-transform: none;
+        color: var(--apple-gray-3) !important;
+        border-radius: 7px;
+        transition: all 0.2s var(--ease-apple);
+        border: none !important;
+        min-height: 28px;
     }
     .stTabs [data-baseweb="tab"]:hover {
-        color: #c8d0dc !important;
-        background: rgba(255, 255, 255, 0.03);
+        color: var(--apple-gray-1) !important;
     }
     .stTabs [aria-selected="true"] {
-        color: #00e5ff !important;
-        background: rgba(0, 229, 255, 0.06) !important;
-        border: 1px solid rgba(0, 229, 255, 0.15) !important;
-        box-shadow: 0 0 12px rgba(0, 229, 255, 0.06);
+        color: var(--apple-gray-1) !important;
+        background: var(--apple-card) !important;
+        border: none !important;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06),
+                    0 0.5px 1.5px rgba(0, 0, 0, 0.04),
+                    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+        font-weight: 600;
+    }
+    /* Remove the underline indicator */
+    .stTabs [data-baseweb="tab-highlight"] {
+        display: none !important;
+    }
+    .stTabs [data-baseweb="tab-border"] {
+        display: none !important;
     }
 
-    /* ══════════════════════ METRIC CARDS — Monzo financial cards ══════════════════════ */
+    /* ══════════ METRIC CARDS — Apple widget system ══════════ */
     [data-testid="stMetric"] {
-        background: rgba(17, 24, 39, 0.5) !important;
-        backdrop-filter: blur(20px) saturate(180%);
-        -webkit-backdrop-filter: blur(20px) saturate(180%);
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        border-radius: 16px !important;
-        padding: 20px 22px 16px 22px !important;
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        background: var(--apple-card) !important;
+        border: none !important;
+        border-radius: var(--radius-lg) !important;
+        padding: 18px 20px 14px 20px !important;
+        box-shadow: var(--shadow-md);
+        transition: transform 0.4s var(--ease-spring),
+                    box-shadow 0.35s var(--ease-apple);
         position: relative;
         overflow: hidden;
     }
     [data-testid="stMetric"]::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.3), transparent);
-        opacity: 0;
-        transition: opacity 0.3s ease;
+        display: none;
     }
     [data-testid="stMetric"]:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 229, 255, 0.05);
-        border-color: rgba(0, 229, 255, 0.1) !important;
-    }
-    [data-testid="stMetric"]:hover::before {
-        opacity: 1;
+        transform: scale(1.02) translateY(-1px);
+        box-shadow: var(--shadow-lg);
     }
     [data-testid="stMetric"] label {
         font-size: 0.65rem !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.1em !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.02em !important;
         text-transform: uppercase !important;
-        color: #5b6478 !important;
-        margin-bottom: 4px !important;
+        color: var(--apple-gray-4) !important;
+        margin-bottom: 2px !important;
     }
     [data-testid="stMetric"] [data-testid="stMetricValue"] {
-        font-size: 1.6rem !important;
-        font-weight: 800 !important;
-        color: #f0f2f5 !important;
-        letter-spacing: -0.03em;
-        line-height: 1.2;
+        font-size: 1.5rem !important;
+        font-weight: 700 !important;
+        color: var(--apple-gray-1) !important;
+        letter-spacing: -0.025em;
+        line-height: 1.15;
     }
     [data-testid="stMetric"] [data-testid="stMetricDelta"] {
-        font-size: 0.72rem !important;
+        font-size: 0.7rem !important;
         font-weight: 600 !important;
     }
 
-    /* ══════════════════════ BUTTONS — clean with subtle glow ══════════════════════ */
+    /* ══════════ BUTTONS — Apple HIG ══════════ */
     .stButton > button {
-        background: rgba(0, 229, 255, 0.08) !important;
-        border: 1px solid rgba(0, 229, 255, 0.2) !important;
-        color: #00e5ff !important;
-        font-weight: 600 !important;
-        font-size: 0.82rem !important;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        border-radius: 10px !important;
-        padding: 10px 28px !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        background: var(--apple-blue) !important;
+        border: none !important;
+        color: #ffffff !important;
+        font-weight: 500 !important;
+        font-size: 0.85rem !important;
+        letter-spacing: -0.01em;
+        text-transform: none;
+        border-radius: var(--radius-md) !important;
+        padding: 10px 24px !important;
+        transition: all 0.2s var(--ease-apple) !important;
+        box-shadow: none !important;
+        min-height: 36px;
     }
     .stButton > button:hover {
-        background: rgba(0, 229, 255, 0.15) !important;
-        box-shadow: 0 0 24px rgba(0, 229, 255, 0.12) !important;
-        transform: translateY(-1px);
-        border-color: rgba(0, 229, 255, 0.35) !important;
+        background: var(--apple-blue-hover) !important;
+        box-shadow: none !important;
+        transform: none;
+        filter: brightness(0.92);
     }
     .stButton > button:active {
-        transform: translateY(0px) scale(0.98);
+        transform: scale(0.97);
+        filter: brightness(0.85);
     }
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(0, 229, 255, 0.08)) !important;
-        border: 1px solid rgba(0, 229, 255, 0.3) !important;
+    .stButton > button[kind="primary"],
+    .stButton > button[kind="primary"]:hover {
+        background: var(--apple-blue) !important;
+        border: none !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        filter: brightness(0.92);
+    }
+    /* Secondary buttons — gray background */
+    .stButton > button[kind="secondary"] {
+        background: rgba(0, 0, 0, 0.05) !important;
+        color: var(--apple-blue) !important;
+    }
+    .stButton > button[kind="secondary"]:hover {
+        background: rgba(0, 0, 0, 0.08) !important;
     }
 
-    /* ══════════════════════ INPUTS — minimal, Zara-clean ══════════════════════ */
+    /* ══════════ INPUTS — Apple text fields ══════════ */
     .stSelectbox > div > div,
+    .stMultiSelect > div > div {
+        background: var(--apple-card) !important;
+        border: 1px solid var(--apple-gray-6) !important;
+        border-radius: var(--radius-sm) !important;
+        color: var(--apple-gray-1) !important;
+        transition: all 0.15s var(--ease-apple);
+        min-height: 36px;
+    }
     .stNumberInput > div > div > input,
     .stTextInput > div > div > input {
-        background: rgba(17, 24, 39, 0.45) !important;
-        border: 1px solid rgba(255, 255, 255, 0.07) !important;
-        border-radius: 10px !important;
-        color: #e2e8f0 !important;
-        transition: border-color 0.2s ease;
+        background: var(--apple-card) !important;
+        border: 1px solid var(--apple-gray-6) !important;
+        border-radius: var(--radius-sm) !important;
+        color: var(--apple-gray-1) !important;
+        transition: all 0.15s var(--ease-apple);
+        height: 36px;
     }
     .stSelectbox > div > div:hover,
+    .stMultiSelect > div > div:hover,
     .stNumberInput > div > div > input:hover,
     .stTextInput > div > div > input:hover {
-        border-color: rgba(0, 229, 255, 0.2) !important;
+        border-color: var(--apple-gray-5) !important;
     }
     .stSelectbox > div > div:focus-within,
+    .stMultiSelect > div > div:focus-within,
     .stNumberInput > div > div > input:focus,
     .stTextInput > div > div > input:focus {
-        border-color: rgba(0, 229, 255, 0.4) !important;
-        box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.08) !important;
+        border-color: var(--apple-blue) !important;
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
     }
     .stSelectbox label,
     .stNumberInput label,
     .stTextInput label,
     .stMultiSelect label {
-        font-size: 0.7rem !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.08em !important;
-        text-transform: uppercase !important;
-        color: #5b6478 !important;
+        font-size: 0.78rem !important;
+        font-weight: 500 !important;
+        letter-spacing: -0.005em !important;
+        text-transform: none !important;
+        color: var(--apple-gray-2) !important;
+        margin-bottom: 4px !important;
     }
 
-    /* ══════════════════════ DATAFRAMES — clean surface ══════════════════════ */
+    /* ══════════ DATAFRAMES — clean elevated card ══════════ */
     [data-testid="stDataFrame"] {
-        background: rgba(17, 24, 39, 0.35) !important;
-        border-radius: 14px !important;
-        border: 1px solid rgba(255, 255, 255, 0.04) !important;
+        background: var(--apple-card) !important;
+        border-radius: var(--radius-md) !important;
+        border: none !important;
         overflow: hidden;
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: var(--shadow-md);
     }
 
-    /* ══════════════════════ EXPANDERS — subtle accordion ══════════════════════ */
+    /* ══════════ EXPANDERS — Apple disclosure group ══════════ */
     .streamlit-expanderHeader {
-        font-weight: 600 !important;
-        font-size: 0.8rem !important;
-        letter-spacing: 0.03em;
-        color: #8b95a5 !important;
-        background: rgba(17, 24, 39, 0.3) !important;
-        border-radius: 10px !important;
-        border: 1px solid rgba(255, 255, 255, 0.04) !important;
-        transition: all 0.25s ease;
+        font-weight: 500 !important;
+        font-size: 0.85rem !important;
+        letter-spacing: -0.01em;
+        color: var(--apple-gray-1) !important;
+        background: var(--apple-card) !important;
+        border-radius: var(--radius-md) !important;
+        border: none !important;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.2s var(--ease-apple);
+        padding: 12px 16px !important;
     }
     .streamlit-expanderHeader:hover {
-        color: #c8d0dc !important;
-        background: rgba(17, 24, 39, 0.5) !important;
-        border-color: rgba(255, 255, 255, 0.08) !important;
+        color: var(--apple-blue) !important;
+        box-shadow: var(--shadow-md);
+    }
+    details[open] .streamlit-expanderHeader {
+        border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
     }
 
-    /* ══════════════════════ SECTION DIVIDERS — Zara minimal ══════════════════════ */
+    /* ══════════ SECTION DIVIDERS ══════════ */
     hr {
         border: none !important;
-        border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+        border-top: 0.5px solid rgba(0, 0, 0, 0.08) !important;
         margin: 2rem 0 !important;
     }
 
-    /* ══════════════════════ TYPOGRAPHY ══════════════════════ */
+    /* ══════════ TYPOGRAPHY — Apple hierarchy ══════════ */
     .stMarkdown h1 {
-        color: #f0f2f5 !important;
-        font-weight: 800 !important;
-        font-size: 1.8rem !important;
-        letter-spacing: -0.03em;
-        line-height: 1.2;
+        color: var(--apple-gray-1) !important;
+        font-weight: 700 !important;
+        font-size: 2rem !important;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
     }
     .stMarkdown h2 {
-        color: #e2e8f0 !important;
-        font-weight: 700 !important;
-        font-size: 1.3rem !important;
+        color: var(--apple-gray-1) !important;
+        font-weight: 600 !important;
+        font-size: 1.35rem !important;
         letter-spacing: -0.02em;
+        line-height: 1.2;
     }
     .stMarkdown h3 {
-        color: #c8d0dc !important;
-        font-weight: 700 !important;
-        font-size: 1rem !important;
-        letter-spacing: -0.01em;
+        color: var(--apple-gray-1) !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
     }
     .stMarkdown p, .stMarkdown li {
-        color: #9ca3af !important;
-        line-height: 1.65;
+        color: var(--apple-gray-3) !important;
+        line-height: 1.58;
+        font-size: 0.92rem;
     }
     .stMarkdown strong {
-        color: #e2e8f0 !important;
+        color: var(--apple-gray-1) !important;
         font-weight: 600;
     }
 
-    /* ══════════════════════ ALERTS — soft glow ══════════════════════ */
+    /* ══════════ ALERTS ══════════ */
     .stAlert {
-        background: rgba(17, 24, 39, 0.45) !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.06) !important;
-        backdrop-filter: blur(12px);
+        background: var(--apple-card) !important;
+        border-radius: var(--radius-md) !important;
+        border: none !important;
+        box-shadow: var(--shadow-md);
+    }
+    .stAlert [data-testid="stNotificationContentInfo"] {
+        color: var(--apple-gray-2) !important;
     }
 
-    /* ══════════════════════ DOWNLOAD BUTTON ══════════════════════ */
+    /* ══════════ DOWNLOAD BUTTON ══════════ */
     .stDownloadButton > button {
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        color: #6b7280 !important;
-        border-radius: 8px !important;
-        font-size: 0.75rem !important;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
-        transition: all 0.2s ease;
+        background: rgba(0, 0, 0, 0.035) !important;
+        border: none !important;
+        color: var(--apple-blue) !important;
+        border-radius: var(--radius-sm) !important;
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        letter-spacing: -0.01em;
+        text-transform: none;
+        transition: all 0.15s var(--ease-apple);
+        box-shadow: none !important;
     }
     .stDownloadButton > button:hover {
-        background: rgba(255, 255, 255, 0.06) !important;
-        color: #c8d0dc !important;
-        border-color: rgba(255, 255, 255, 0.12) !important;
+        background: rgba(0, 122, 255, 0.06) !important;
+        color: var(--apple-blue-hover) !important;
     }
 
-    /* ══════════════════════ PROGRESS BAR — gradient accent ══════════════════════ */
+    /* ══════════ PROGRESS BAR ══════════ */
+    .stProgress > div > div {
+        background: rgba(0, 0, 0, 0.06) !important;
+        border-radius: 6px;
+    }
     .stProgress > div > div > div > div {
-        background: linear-gradient(90deg, #00e5ff, #39ff14) !important;
-        border-radius: 4px;
-        box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+        background: var(--apple-blue) !important;
+        border-radius: 6px;
+        box-shadow: none;
     }
 
-    /* ══════════════════════ MULTISELECT CHIPS ══════════════════════ */
+    /* ══════════ MULTISELECT CHIPS ══════════ */
     span[data-baseweb="tag"] {
-        background: rgba(0, 229, 255, 0.1) !important;
-        border: 1px solid rgba(0, 229, 255, 0.2) !important;
+        background: rgba(0, 122, 255, 0.08) !important;
+        border: none !important;
         border-radius: 6px !important;
-        color: #00e5ff !important;
-        font-size: 0.75rem !important;
+        color: var(--apple-blue) !important;
+        font-size: 0.78rem !important;
+        font-weight: 500 !important;
     }
 
-    /* ══════════════════════ CAPTIONS ══════════════════════ */
+    /* ══════════ CAPTIONS ══════════ */
     .stCaption, [data-testid="stCaptionContainer"] {
-        color: #3d4657 !important;
+        color: var(--apple-gray-4) !important;
         font-size: 0.72rem !important;
-        letter-spacing: 0.01em;
+        letter-spacing: 0.005em;
     }
 
-    /* ══════════════════════ SCROLLBAR — minimal ══════════════════════ */
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    /* ══════════ SCROLLBAR — macOS style ══════════ */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 10px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.12); }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.0);
+        border-radius: 100px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+        transition: background 0.3s;
+    }
+    *:hover > ::-webkit-scrollbar-thumb,
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 0, 0, 0.15);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+    }
 
-    /* ══════════════════════ CUSTOM SECTION HEADERS ══════════════════════ */
+    /* ══════════ SECTION HEADERS ══════════ */
     .section-header {
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin: 1.5rem 0 1rem 0;
+        gap: 12px;
+        margin: 2rem 0 1.2rem 0;
     }
     .section-header .label {
-        font-size: 0.68rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
+        font-size: 0.65rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: #5b6478;
+        color: var(--apple-gray-4);
+        white-space: nowrap;
     }
     .section-header .line {
         flex: 1;
-        height: 1px;
-        background: rgba(255, 255, 255, 0.04);
+        height: 0.5px;
+        background: rgba(0, 0, 0, 0.08);
     }
     .section-header .accent {
-        color: #00e5ff;
+        color: var(--apple-blue);
     }
 
-    /* ══════════════════════ RADIO BUTTONS — pill style ══════════════════════ */
+    /* ══════════ RADIO BUTTONS — Apple pill toggle ══════════ */
     .stRadio > div {
-        gap: 4px !important;
+        gap: 0 !important;
+        background: rgba(118, 118, 128, 0.08);
+        border-radius: var(--radius-sm);
+        padding: 2px;
+        display: inline-flex !important;
     }
-    .stRadio label {
-        font-size: 0.75rem !important;
+    .stRadio > div > label {
+        font-size: 0.8rem !important;
+        font-weight: 500 !important;
+        letter-spacing: -0.008em !important;
+        color: var(--apple-gray-3) !important;
+        text-transform: none !important;
+        padding: 6px 14px !important;
+        border-radius: 7px !important;
+        transition: all 0.2s var(--ease-apple);
+        cursor: pointer;
+    }
+    .stRadio > div > label[data-checked="true"],
+    .stRadio > div > label:has(input:checked) {
+        background: var(--apple-card);
+        color: var(--apple-gray-1) !important;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 0.5px 1.5px rgba(0, 0, 0, 0.04);
         font-weight: 600 !important;
-        letter-spacing: 0.04em !important;
-        color: #5b6478 !important;
-        text-transform: uppercase !important;
     }
 
-    /* ══════════════════════ SPINNER ══════════════════════ */
+    /* ══════════ SPINNER ══════════ */
     .stSpinner > div {
-        border-top-color: #00e5ff !important;
+        border-top-color: var(--apple-blue) !important;
     }
 
-    /* ══════════════════════ TOAST / NOTIFICATIONS ══════════════════════ */
+    /* ══════════ TOAST / NOTIFICATIONS ══════════ */
     [data-testid="stToast"] {
-        background: rgba(17, 24, 39, 0.9) !important;
-        border: 1px solid rgba(0, 229, 255, 0.15) !important;
-        border-radius: 12px !important;
-        backdrop-filter: blur(20px);
+        background: rgba(255, 255, 255, 0.98) !important;
+        border: none !important;
+        border-radius: var(--radius-lg) !important;
+        backdrop-filter: blur(40px) saturate(200%);
+        box-shadow: var(--shadow-xl);
+        color: var(--apple-gray-1) !important;
+    }
+
+    /* ══════════ CHAT ══════════ */
+    [data-testid="stChatInput"] textarea {
+        background: var(--apple-card) !important;
+        border: 1px solid var(--apple-gray-6) !important;
+        border-radius: var(--radius-xl) !important;
+        color: var(--apple-gray-1) !important;
+        padding: 10px 16px !important;
+        font-size: 0.88rem !important;
+    }
+    [data-testid="stChatInput"] textarea:focus {
+        border-color: var(--apple-blue) !important;
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+    }
+    [data-testid="stChatMessage"] {
+        background: var(--apple-card) !important;
+        border-radius: var(--radius-lg) !important;
+        border: none !important;
+        box-shadow: var(--shadow-sm);
+        padding: 12px 16px !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* ══════════ CHECKBOX / TOGGLE ══════════ */
+    .stCheckbox label {
+        color: var(--apple-gray-1) !important;
+        font-weight: 400 !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* ══════════ PLOTLY CHARTS — elevated card ══════════ */
+    [data-testid="stPlotlyChart"] {
+        background: var(--apple-card);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        box-shadow: var(--shadow-md);
+        margin: 4px 0;
+    }
+
+    /* ══════════ COLUMN GAPS ══════════ */
+    [data-testid="stHorizontalBlock"] {
+        gap: 12px;
+    }
+
+    /* ══════════ STATUS WIDGETS ══════════ */
+    .stSuccess, .stWarning, .stError, .stInfo {
+        border-radius: var(--radius-md) !important;
+        border: none !important;
+        box-shadow: var(--shadow-sm);
+    }
+
+    /* ══════════ SELECT SLIDER ══════════ */
+    .stSlider > div > div > div > div {
+        background: var(--apple-blue) !important;
+    }
+
+    /* ══════════ POPOVER / DROPDOWN ══════════ */
+    [data-baseweb="popover"] > div {
+        border-radius: var(--radius-md) !important;
+        border: none !important;
+        box-shadow: var(--shadow-xl) !important;
+        background: var(--apple-card) !important;
+    }
+    [data-baseweb="menu"] {
+        background: var(--apple-card) !important;
+        border: none !important;
+    }
+    [data-baseweb="menu"] li {
+        font-size: 0.85rem !important;
+        color: var(--apple-gray-1) !important;
+        border-radius: var(--radius-sm) !important;
+        margin: 2px 4px !important;
+    }
+    [data-baseweb="menu"] li:hover {
+        background: rgba(0, 122, 255, 0.06) !important;
+        color: var(--apple-blue) !important;
+    }
+
+    /* ══════════ ANIMATIONS ══════════ */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .main .block-container > div {
+        animation: fadeIn 0.4s var(--ease-apple) both;
+    }
+
+    /* ══════════ EMPTY STATE ══════════ */
+    .stInfo, [data-testid="stNotificationContentInfo"] {
+        color: var(--apple-gray-2) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Plotly Dark Theme ──
+# ── Plotly Light Theme (Apple) ──
 PLOTLY_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(17, 24, 39, 0.2)",
-    font=dict(family="Inter, SF Pro Display, sans-serif", color="#8b95a5", size=12),
-    xaxis=dict(gridcolor="rgba(255,255,255,0.03)", zerolinecolor="rgba(255,255,255,0.05)"),
-    yaxis=dict(gridcolor="rgba(255,255,255,0.03)", zerolinecolor="rgba(255,255,255,0.05)"),
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="Inter, SF Pro Display, sans-serif", color="#86868b", size=12),
+    xaxis=dict(gridcolor="rgba(0,0,0,0.04)", zerolinecolor="rgba(0,0,0,0.06)"),
+    yaxis=dict(gridcolor="rgba(0,0,0,0.04)", zerolinecolor="rgba(0,0,0,0.06)"),
     margin=dict(l=40, r=20, t=30, b=40),
-    legend=dict(font=dict(color="#8b95a5", size=11), bgcolor="rgba(0,0,0,0)"),
+    legend=dict(font=dict(color="#6e6e73", size=11), bgcolor="rgba(0,0,0,0)"),
 )
 
 
 def _section_header(label: str, accent: bool = False):
-    """Discord-style section header with subtle line."""
+    """Apple-style section header with subtle line."""
     cls = "accent" if accent else ""
     st.markdown(
         f'<div class="section-header">'
@@ -700,10 +903,10 @@ def build_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         low=df["Low"],
         close=df["Close"],
         name="OHLC",
-        increasing_line_color="#39ff14",
-        decreasing_line_color="#ff2e63",
-        increasing_fillcolor="rgba(57, 255, 20, 0.6)",
-        decreasing_fillcolor="rgba(255, 46, 99, 0.6)",
+        increasing_line_color="#34C759",
+        decreasing_line_color="#FF3B30",
+        increasing_fillcolor="rgba(52, 199, 89, 0.7)",
+        decreasing_fillcolor="rgba(255, 59, 48, 0.7)",
     ))
 
     fig.add_trace(go.Scatter(
@@ -711,30 +914,30 @@ def build_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         y=df["EMA20"],
         mode="lines",
         name="EMA 20",
-        line=dict(color="#60a5fa", width=2.5),
+        line=dict(color="#007AFF", width=2.5),
     ))
 
     fig.update_layout(
-        title=go.layout.Title(text=f"{ticker} · 5-Min", font=dict(size=13, color="#8b95a5", family="Inter, sans-serif")),
+        title=go.layout.Title(text=f"{ticker} · 5-Min", font=dict(size=13, color="#6e6e73", family="Inter, sans-serif")),
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(17, 24, 39, 0.2)",
-        font=dict(family="Inter, SF Pro Display, sans-serif", color="#8b95a5"),
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, SF Pro Display, sans-serif", color="#6e6e73"),
         xaxis=go.layout.XAxis(
             rangeslider=dict(visible=False),
             type="linear",
-            title=go.layout.xaxis.Title(text="Bar #", font=dict(size=11, color="#5b6478")),
-            gridcolor="rgba(255,255,255,0.03)",
+            title=go.layout.xaxis.Title(text="Bar #", font=dict(size=11, color="#86868b")),
+            gridcolor="rgba(0,0,0,0.04)",
             dtick=5,
-            minor=dict(dtick=1, gridcolor="rgba(255,255,255,0.015)"),
+            minor=dict(dtick=1, gridcolor="rgba(0,0,0,0.02)"),
             tick0=1,
-            tickfont=dict(size=10, color="#5b6478"),
+            tickfont=dict(size=10, color="#86868b"),
         ),
         yaxis=go.layout.YAxis(
-            gridcolor="rgba(255,255,255,0.03)",
-            title=go.layout.yaxis.Title(text="Price", font=dict(size=11, color="#5b6478")),
-            tickfont=dict(size=10, color="#5b6478"),
+            gridcolor="rgba(0,0,0,0.04)",
+            title=go.layout.yaxis.Title(text="Price", font=dict(size=11, color="#86868b")),
+            tickfont=dict(size=10, color="#86868b"),
         ),
-        legend=go.layout.Legend(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#8b95a5"), bgcolor="rgba(0,0,0,0)"),
+        legend=go.layout.Legend(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#6e6e73"), bgcolor="rgba(0,0,0,0)"),
         margin=go.layout.Margin(l=10, r=10, t=50, b=10),
         height=560,
         autosize=True,
@@ -779,7 +982,7 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     # Highlight trade range with a shaded rectangle
     fig.add_vrect(
         x0=entry_x - 0.5, x1=exit_x + 0.5,
-        fillcolor="rgba(0, 229, 255, 0.06)",
+        fillcolor="rgba(0, 122, 255, 0.06)",
         line_width=0,
         layer="below",
     )
@@ -792,10 +995,10 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         low=window_df["Low"],
         close=window_df["Close"],
         name="OHLC",
-        increasing_line_color="#39ff14",
-        decreasing_line_color="#ff2e63",
-        increasing_fillcolor="rgba(57, 255, 20, 0.6)",
-        decreasing_fillcolor="rgba(255, 46, 99, 0.6)",
+        increasing_line_color="#34C759",
+        decreasing_line_color="#FF3B30",
+        increasing_fillcolor="rgba(52, 199, 89, 0.7)",
+        decreasing_fillcolor="rgba(255, 59, 48, 0.7)",
     ))
 
     # EMA if available
@@ -803,7 +1006,7 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         fig.add_trace(go.Scatter(
             x=x_vals, y=window_df["EMA20"],
             mode="lines", name="EMA 20",
-            line=dict(color="#60a5fa", width=2),
+            line=dict(color="#007AFF", width=2),
         ))
 
     # Setup bar (signal bar = bar before entry) -- painted purple
@@ -813,19 +1016,19 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         fig.add_trace(go.Candlestick(
             x=[setup_x if is_daily else x_vals.iloc[setup_x]],
             open=[sb["Open"]], high=[sb["High"]], low=[sb["Low"]], close=[sb["Close"]],
-            increasing_line_color="#a855f7", decreasing_line_color="#a855f7",
-            increasing_fillcolor="rgba(168, 85, 247, 0.7)", decreasing_fillcolor="rgba(168, 85, 247, 0.7)",
+            increasing_line_color="#AF52DE", decreasing_line_color="#AF52DE",
+            increasing_fillcolor="rgba(175, 82, 222, 0.7)", decreasing_fillcolor="rgba(175, 82, 222, 0.7)",
             name="Setup Bar", showlegend=True,
         ))
 
-    # Entry bar -- painted gold
+    # Entry bar -- painted teal
     if entry_x >= 0 and entry_x < len(window_df):
         eb = window_df.iloc[entry_x]
         fig.add_trace(go.Candlestick(
             x=[entry_x if is_daily else x_vals.iloc[entry_x]],
             open=[eb["Open"]], high=[eb["High"]], low=[eb["Low"]], close=[eb["Close"]],
-            increasing_line_color="#00e5ff", decreasing_line_color="#00e5ff",
-            increasing_fillcolor="rgba(0, 229, 255, 0.7)", decreasing_fillcolor="rgba(0, 229, 255, 0.7)",
+            increasing_line_color="#5AC8FA", decreasing_line_color="#5AC8FA",
+            increasing_fillcolor="rgba(90, 200, 250, 0.7)", decreasing_fillcolor="rgba(90, 200, 250, 0.7)",
             name="Entry Bar", showlegend=True,
         ))
 
@@ -836,8 +1039,18 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
     fig.add_trace(go.Scatter(
         x=[entry_x - 0.5, exit_x + 0.5],
         y=[trade.stop_loss, trade.stop_loss],
-        mode="lines", line=dict(color="#ff2e63", width=1.5, dash="dash"),
-        name="Stop Loss", showlegend=True,
+        mode="lines", line=dict(color="rgba(255, 59, 48, 0.45)", width=1, dash="dash"),
+        name=f"Stop ${trade.stop_loss:.2f}", showlegend=True,
+    ))
+
+    # Entry price line with order type
+    _order_type = getattr(trade, "order_type", "Stop") or "Stop"
+    _entry_label = f"Entry ({_order_type}) ${trade.entry_price:.2f}"
+    fig.add_trace(go.Scatter(
+        x=[entry_x - 0.5, exit_x + 0.5],
+        y=[trade.entry_price, trade.entry_price],
+        mode="lines", line=dict(color="rgba(0, 122, 255, 0.35)", width=1, dash="dash"),
+        name=_entry_label, showlegend=True,
     ))
 
     # Target line — show the target that was actually used for the trade
@@ -849,44 +1062,42 @@ def build_trade_chart(df: pd.DataFrame, trade, ticker: str, is_daily: bool = Fal
         target = trade.swing_target
         target_label = "Swing Target"
     else:
-        # Default: show scalp target (1:1) since that's the more conservative one
-        # Show both if they differ
         target = trade.scalp_target
         target_label = "Scalp Target"
     fig.add_trace(go.Scatter(
         x=[entry_x - 0.5, exit_x + 0.5],
         y=[target, target],
-        mode="lines", line=dict(color="#39ff14", width=1.5, dash="dash"),
-        name=target_label, showlegend=True,
+        mode="lines", line=dict(color="rgba(52, 199, 89, 0.45)", width=1, dash="dash"),
+        name=f"{target_label} ${target:.2f}", showlegend=True,
     ))
     # Also show swing target as a lighter line if different from scalp
     if trade.swing_target != trade.scalp_target:
         fig.add_trace(go.Scatter(
             x=[entry_x - 0.5, exit_x + 0.5],
             y=[trade.swing_target, trade.swing_target],
-            mode="lines", line=dict(color="#39ff14", width=1, dash="dot"),
+            mode="lines", line=dict(color="rgba(52, 199, 89, 0.3)", width=1, dash="dot"),
             name="Swing Target", showlegend=True,
         ))
 
     fig.update_layout(
-        title=dict(text=chart_title, font=dict(color="#e8eaed", size=14)),
+        title=dict(text=chart_title, font=dict(color="#1d1d1f", size=14)),
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(17, 24, 39, 0.3)",
-        font=dict(family="Inter, SF Pro Display, sans-serif", color="#9ca3af"),
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, SF Pro Display, sans-serif", color="#6e6e73"),
         xaxis=dict(
             rangeslider=dict(visible=False),
             type="linear",
             title=x_title,
-            gridcolor="rgba(255,255,255,0.04)",
-            tickfont=dict(size=11, color="#6b7280"),
+            gridcolor="rgba(0,0,0,0.04)",
+            tickfont=dict(size=11, color="#86868b"),
         ),
         yaxis=dict(
-            gridcolor="rgba(255,255,255,0.04)",
+            gridcolor="rgba(0,0,0,0.04)",
             title="Price",
-            tickfont=dict(size=11, color="#6b7280"),
+            tickfont=dict(size=11, color="#86868b"),
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                    font=dict(color="#9ca3af", size=11), bgcolor="rgba(0,0,0,0)"),
+                    font=dict(color="#6e6e73", size=11), bgcolor="rgba(0,0,0,0)"),
         margin=dict(l=10, r=10, t=50, b=10),
         height=400,
         autosize=True,
@@ -1000,10 +1211,10 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
             except (ValueError, TypeError):
                 val = 0
         if val > 0:
-            return ["background-color: rgba(57, 255, 20, 0.08); color: #d1d5db"] * len(row)
+            return ["background-color: rgba(52, 199, 89, 0.08); color: #1d1d1f"] * len(row)
         elif val < 0:
-            return ["background-color: rgba(255, 46, 99, 0.08); color: #d1d5db"] * len(row)
-        return ["color: #d1d5db"] * len(row)
+            return ["background-color: rgba(255, 59, 48, 0.06); color: #1d1d1f"] * len(row)
+        return ["color: #1d1d1f"] * len(row)
 
     # Format numeric columns for clean display
     format_dict = {
@@ -1066,7 +1277,7 @@ def render_setup_performance(summary: dict, trades: list, key_prefix: str = "bt"
                     mode="lines+markers", line=dict(color=_color, width=2),
                     marker=dict(size=3, color=_color), name="Cum P&L",
                 ))
-                fig_cum.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.1)")
+                fig_cum.add_hline(y=0, line_dash="dot", line_color="rgba(0,0,0,0.08)")
                 fig_cum.update_layout(**PLOTLY_LAYOUT, height=200,
                     xaxis_title="Trade #", yaxis_title="Cum P&L ($/sh)")
                 st.plotly_chart(fig_cum, use_container_width=True, key=f"{key_prefix}_grp_{safe_key}_cum")
@@ -1211,12 +1422,12 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             if len(w_trades):
                 fig_mae.add_trace(go.Scatter(
                     x=w_trades["mae_r"], y=w_trades["mfe_r"],
-                    mode="markers", marker=dict(color="#39ff14", size=8, opacity=0.7), name="Winners",
+                    mode="markers", marker=dict(color="#34C759", size=8, opacity=0.7), name="Winners",
                 ))
             if len(l_trades):
                 fig_mae.add_trace(go.Scatter(
                     x=l_trades["mae_r"], y=l_trades["mfe_r"],
-                    mode="markers", marker=dict(color="#ff2e63", size=8, opacity=0.7), name="Losers",
+                    mode="markers", marker=dict(color="#FF3B30", size=8, opacity=0.7), name="Losers",
                 ))
             max_v = max(filtered["mae_r"].max(), filtered["mfe_r"].max(), 1) * 1.1
             fig_mae.add_trace(go.Scatter(x=[0, max_v], y=[0, max_v], mode="lines",
@@ -1229,9 +1440,9 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
         if len(filtered) > 3:
             fig_mae_hist = go.Figure()
             fig_mae_hist.add_trace(go.Histogram(x=filtered["mae_r"], nbinsx=20, name="MAE (R)",
-                                                 marker_color="#ff2e63", opacity=0.7))
+                                                 marker_color="#FF3B30", opacity=0.7))
             fig_mae_hist.add_trace(go.Histogram(x=filtered["mfe_r"], nbinsx=20, name="MFE (R)",
-                                                 marker_color="#39ff14", opacity=0.7))
+                                                 marker_color="#34C759", opacity=0.7))
             fig_mae_hist.update_layout(barmode="overlay", xaxis_title="R-Multiple", yaxis_title="Count",
                                         height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_mae_hist, use_container_width=True, key=f"{key_prefix}_mae_hist")
@@ -1243,8 +1454,8 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
         if len(filtered) > 3:
             fig_pnl = go.Figure()
             fig_pnl.add_trace(go.Histogram(x=filtered["pnl"], nbinsx=30, name="P&L",
-                                            marker_color="#00e5ff", opacity=0.8))
-            fig_pnl.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.12)")
+                                            marker_color="#007AFF", opacity=0.8))
+            fig_pnl.add_vline(x=0, line_dash="dash", line_color="rgba(0,0,0,0.08)")
             fig_pnl.add_vline(x=filtered["pnl"].mean(), line_dash="dot", line_color="#f59e0b",
                                annotation_text=f"Avg: ${filtered['pnl'].mean():.2f}")
             fig_pnl.update_layout(xaxis_title="P&L ($/share)", yaxis_title="Count",
@@ -1256,7 +1467,7 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             fig_r = go.Figure()
             fig_r.add_trace(go.Histogram(x=filtered["r"], nbinsx=30, name="R",
                                           marker_color="#a855f7", opacity=0.8))
-            fig_r.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.12)")
+            fig_r.add_vline(x=0, line_dash="dash", line_color="rgba(0,0,0,0.08)")
             fig_r.update_layout(xaxis_title="R-Multiple", yaxis_title="Count",
                                  height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_r, use_container_width=True, key=f"{key_prefix}_r_dist")
@@ -1360,7 +1571,7 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
                     z=pivot.values,
                     x=[f"W{w}" for w in pivot.columns],
                     y=["Mon", "Tue", "Wed", "Thu", "Fri"],
-                    colorscale=[[0, "#ff2e63"], [0.5, "#111827"], [1, "#39ff14"]],
+                    colorscale=[[0, "#FF3B30"], [0.5, "#f5f5f7"], [1, "#34C759"]],
                     zmid=0, zmin=-max_abs, zmax=max_abs,
                     text=pivot.values.round(2),
                     texttemplate="%{text}",
@@ -1406,10 +1617,10 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             l_bh = filtered.loc[~filtered["winner"], "bars_held"]
             if len(w_bh):
                 fig_bh.add_trace(go.Histogram(x=w_bh, name="Winners",
-                                               marker_color="#39ff14", opacity=0.7))
+                                               marker_color="#34C759", opacity=0.7))
             if len(l_bh):
                 fig_bh.add_trace(go.Histogram(x=l_bh, name="Losers",
-                                               marker_color="#ff2e63", opacity=0.7))
+                                               marker_color="#FF3B30", opacity=0.7))
             fig_bh.update_layout(barmode="overlay", xaxis_title="Bars Held", yaxis_title="Count",
                                   height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_bh, use_container_width=True, key=f"{key_prefix}_bh_dist")
@@ -1462,8 +1673,8 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
                 # Equity distribution histogram
                 fig_mc = go.Figure()
                 fig_mc.add_trace(go.Histogram(x=mc["all_final_equities"], nbinsx=50,
-                                               marker_color="#00e5ff", name="Final Equity"))
-                fig_mc.add_vline(x=10000, line_dash="dash", line_color="rgba(255,255,255,0.12)",
+                                               marker_color="#007AFF", name="Final Equity"))
+                fig_mc.add_vline(x=10000, line_dash="dash", line_color="rgba(0,0,0,0.08)",
                                   annotation_text="$10,000 start")
                 fig_mc.update_layout(xaxis_title="Final Equity ($)", yaxis_title="Frequency",
                                       height=280, margin=dict(l=40, r=20, t=10, b=40))
@@ -1528,9 +1739,9 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             fig_rs = go.Figure()
             fig_rs.add_trace(go.Scatter(
                 x=list(range(1, len(rolling_sharpe) + 1)), y=rolling_sharpe,
-                mode="lines", line=dict(color="#00e5ff", width=2), name=f"Rolling Sharpe ({window})",
+                mode="lines", line=dict(color="#007AFF", width=2), name=f"Rolling Sharpe ({window})",
             ))
-            fig_rs.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.12)")
+            fig_rs.add_hline(y=0, line_dash="dash", line_color="rgba(0,0,0,0.08)")
             fig_rs.update_layout(xaxis_title="Trade #", yaxis_title="Sharpe Ratio",
                                   height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_rs, use_container_width=True, key=f"{key_prefix}_rolling_sharpe")
@@ -1540,9 +1751,9 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             fig_rwr = go.Figure()
             fig_rwr.add_trace(go.Scatter(
                 x=list(range(1, len(rolling_wr) + 1)), y=rolling_wr * 100,
-                mode="lines", line=dict(color="#39ff14", width=2), name=f"Rolling Win Rate ({window})",
+                mode="lines", line=dict(color="#34C759", width=2), name=f"Rolling Win Rate ({window})",
             ))
-            fig_rwr.add_hline(y=50, line_dash="dash", line_color="rgba(255,255,255,0.12)", annotation_text="50%")
+            fig_rwr.add_hline(y=50, line_dash="dash", line_color="rgba(0,0,0,0.08)", annotation_text="50%")
             fig_rwr.update_layout(xaxis_title="Trade #", yaxis_title="Win Rate (%)",
                                    height=250, margin=dict(l=40, r=20, t=10, b=40))
             st.plotly_chart(fig_rwr, use_container_width=True, key=f"{key_prefix}_rolling_wr")
@@ -1570,7 +1781,7 @@ def render_analytics(trades: list, summary: dict, key_prefix: str = "bt"):
             fig_dda = go.Figure()
             fig_dda.add_trace(go.Scatter(
                 x=list(range(1, len(dd_series) + 1)), y=dd_series,
-                mode="lines", fill="tozeroy", line=dict(color="#ff2e63", width=1),
+                mode="lines", fill="tozeroy", line=dict(color="#FF3B30", width=1),
                 fillcolor="rgba(255,23,68,0.3)", name="Drawdown",
             ))
             fig_dda.update_layout(xaxis_title="Trade #", yaxis_title="Drawdown ($/sh)",
@@ -2044,8 +2255,13 @@ def check_prefetch():
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("### BPA Bot")
-        st.caption("Price Action Analysis Engine")
+        st.markdown(
+            '<div style="margin-bottom:1.2rem;">'
+            '<div style="font-size:1.15rem;font-weight:700;color:#1d1d1f;letter-spacing:-0.025em;line-height:1.15;">BPA Bot</div>'
+            '<div style="font-size:0.72rem;font-weight:400;color:#86868b;margin-top:2px;letter-spacing:-0.005em;">Price Action Analysis Engine</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
         # Analysis mode toggle
         analysis_mode = st.radio(
@@ -2158,10 +2374,10 @@ def render_training_lab():
     # ── Header Dropdowns ──
     top_col1, top_col2 = st.columns(2)
     with top_col1:
-        st.markdown("<h3 style='text-align: center; color: #e8eaed; margin-bottom: 0px;'>Day Type</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #1d1d1f; margin-bottom: 0px;'>Day Type</h3>", unsafe_allow_html=True)
         day_type = st.selectbox("Day Type", dyn_day_opts, index=0, key=f"day_type_{ticker}", label_visibility="collapsed")
     with top_col2:
-        st.markdown("<h3 style='text-align: center; color: #e8eaed; margin-bottom: 0px;'>Market Cycle</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #1d1d1f; margin-bottom: 0px;'>Market Cycle</h3>", unsafe_allow_html=True)
         market_cycle = st.selectbox("Market Cycle", dyn_cycle_opts, index=0, key=f"market_cycle_{ticker}", label_visibility="collapsed")
 
     # PHASE 1: Rebuild base chart clean every time to support toggles
@@ -2232,16 +2448,16 @@ def render_training_lab():
         )
     with oc2:
         outcome_colors = {
-            "Good Trade, Good Result": "#00C853",
-            "Good Trade, Bad Result": "#f59e0b",
-            "Bad Trade, Good Result": "#f59e0b",
-            "Bad Trade, Bad Result": "#FF1744",
-            "N/A — No Trade Taken": "#9E9E9E",
+            "Good Trade, Good Result": "#34C759",
+            "Good Trade, Bad Result": "#FF9500",
+            "Bad Trade, Good Result": "#FF9500",
+            "Bad Trade, Bad Result": "#FF3B30",
+            "N/A — No Trade Taken": "#8E8E93",
         }
         oc_color = outcome_colors.get(trade_outcome, "#999")
         st.markdown(
-            f'<div style="background:{oc_color};color:white;padding:8px 16px;border-radius:8px;'
-            f'font-weight:600;display:inline-block;margin-top:28px;">{trade_outcome}</div>',
+            f'<div style="background:{oc_color};color:white;padding:8px 16px;border-radius:10px;'
+            f'font-weight:500;display:inline-block;margin-top:28px;font-size:0.88rem;">{trade_outcome}</div>',
             unsafe_allow_html=True,
         )
 
@@ -2820,7 +3036,9 @@ def render_backtest():
                 for t in report["trades"]:
                     t.ticker = bt_ticker
                 all_trades.extend(report["trades"])
-                all_daily_dfs.update(daily_dfs)
+                # Key daily dfs by (ticker, date) to avoid overwrites in multi-ticker mode
+                for date_str, ddf in daily_dfs.items():
+                    all_daily_dfs[f"{bt_ticker}|{date_str}"] = ddf
 
                 ts = report["summary"]
                 ticker_summaries.append({
@@ -2913,7 +3131,7 @@ def render_backtest():
     s = _compute_summary(trades, st.session_state.get("bt_mode", "scalp"))
     filtered_curve = _build_equity_curve(trades)
 
-    # ── Summary metrics (Monzo-style compact row) ──
+    # ── Summary metrics ──
     _section_header("Performance", accent=True)
     curve_df = pd.DataFrame(filtered_curve)
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
@@ -2936,16 +3154,16 @@ def render_backtest():
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines", line=dict(color="rgba(0, 229, 255, 0.12)", width=12),
+        mode="lines", line=dict(color="rgba(0, 122, 255, 0.1)", width=12),
         showlegend=False, hoverinfo="skip",
     ))
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines+markers", line=dict(color="#00e5ff", width=2.5),
-        marker=dict(size=4, color="#00e5ff", line=dict(width=0)), name="Equity",
+        mode="lines+markers", line=dict(color="#007AFF", width=2.5),
+        marker=dict(size=4, color="#007AFF", line=dict(width=0)), name="Equity",
     ))
-    fig_eq.add_hline(y=10000, line_dash="dot", line_color="rgba(255,255,255,0.15)",
-                      annotation_text="$10k", annotation_font_color="#4b5563")
+    fig_eq.add_hline(y=10000, line_dash="dot", line_color="rgba(0,0,0,0.08)",
+                      annotation_text="$10k", annotation_font_color="#86868b")
     fig_eq.update_layout(**PLOTLY_LAYOUT, height=300,
                           xaxis_title="Trade #", yaxis_title="Account ($)")
     st.plotly_chart(fig_eq, use_container_width=True)
@@ -2966,9 +3184,12 @@ def render_backtest():
         if idx < len(trades):
             sel_trade = trades[idx]
             daily_dfs = st.session_state.get("bt_daily_dfs", {})
-            used_ticker = st.session_state.get("bt_ticker_used", bt_selection)
+            trade_ticker = getattr(sel_trade, "ticker", "") or st.session_state.get("bt_ticker_used", bt_selection)
             trade_date = sel_trade.entry_time[:10] if sel_trade.entry_time else ""
-            day_df = daily_dfs.get(trade_date)
+            # Look up by ticker|date key first (multi-ticker), fall back to date-only (single ticker)
+            day_df = daily_dfs.get(f"{trade_ticker}|{trade_date}")
+            if day_df is None:
+                day_df = daily_dfs.get(trade_date)
             if day_df is not None and not day_df.empty:
                 if "BarNumber" not in day_df.columns:
                     day_df = day_df.copy()
@@ -2976,7 +3197,7 @@ def render_backtest():
                 if "EMA20" not in day_df.columns:
                     day_df = day_df.copy()
                     day_df["EMA20"] = day_df["Close"].ewm(span=20, adjust=False).mean()
-                fig_trade = build_trade_chart(day_df, sel_trade, used_ticker, is_daily=False)
+                fig_trade = build_trade_chart(day_df, sel_trade, trade_ticker, is_daily=False)
                 st.plotly_chart(fig_trade, use_container_width=True, key="bt_trade_chart")
             else:
                 st.caption("Chart data not available for this trade's date.")
@@ -3175,7 +3396,7 @@ def render_backtest_daily():
     s = _compute_summary(trades, st.session_state.get("dt_mode", "swing"))
     filtered_curve = _build_equity_curve(trades)
 
-    # ── Summary metrics (Monzo-style compact row) ──
+    # ── Summary metrics ──
     _section_header("Performance", accent=True)
     curve_df = pd.DataFrame(filtered_curve)
     final_equity = curve_df["equity"].iloc[-1] if len(curve_df) > 1 else 10000
@@ -3198,16 +3419,16 @@ def render_backtest_daily():
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines", line=dict(color="rgba(0, 229, 255, 0.12)", width=12),
+        mode="lines", line=dict(color="rgba(0, 122, 255, 0.1)", width=12),
         showlegend=False, hoverinfo="skip",
     ))
     fig_eq.add_trace(go.Scatter(
         x=curve_df["trade_num"], y=curve_df["equity"],
-        mode="lines+markers", line=dict(color="#00e5ff", width=2.5),
-        marker=dict(size=4, color="#00e5ff", line=dict(width=0)), name="Equity",
+        mode="lines+markers", line=dict(color="#007AFF", width=2.5),
+        marker=dict(size=4, color="#007AFF", line=dict(width=0)), name="Equity",
     ))
-    fig_eq.add_hline(y=10000, line_dash="dot", line_color="rgba(255,255,255,0.15)",
-                      annotation_text="$10k", annotation_font_color="#4b5563")
+    fig_eq.add_hline(y=10000, line_dash="dot", line_color="rgba(0,0,0,0.08)",
+                      annotation_text="$10k", annotation_font_color="#86868b")
     fig_eq.update_layout(**PLOTLY_LAYOUT, height=300,
                           xaxis_title="Trade #", yaxis_title="Account ($)")
     st.plotly_chart(fig_eq, use_container_width=True)
@@ -3296,10 +3517,10 @@ CATEGORIES = [
     "Bad Trade, Bad Result",
 ]
 CAT_COLORS = {
-    "Good Trade, Good Result": "#39ff14",
-    "Good Trade, Bad Result": "#f59e0b",
-    "Bad Trade, Good Result": "#f59e0b",
-    "Bad Trade, Bad Result": "#ff2e63",
+    "Good Trade, Good Result": "#34C759",
+    "Good Trade, Bad Result": "#FF9500",
+    "Bad Trade, Good Result": "#FF9500",
+    "Bad Trade, Bad Result": "#FF3B30",
 }
 
 
@@ -3451,11 +3672,11 @@ def render_review_trades():
         exp = row.get("Exp", 0)
         verdict = row.get("Verdict", "")
         if exp > 0:
-            return ["background-color: #e8f5e9"] * len(row)
+            return ["background-color: rgba(52, 199, 89, 0.08)"] * len(row)
         elif exp < 0 and verdict == "AVOID":
-            return ["background-color: #ffebee"] * len(row)
+            return ["background-color: rgba(255, 59, 48, 0.06)"] * len(row)
         elif exp < 0:
-            return ["background-color: #fff3e0"] * len(row)
+            return ["background-color: rgba(255, 149, 0, 0.06)"] * len(row)
         return [""] * len(row)
 
     st.dataframe(
@@ -3570,8 +3791,8 @@ def render_review_trades():
 
     st.markdown(
         f"### Trade {idx + 1} / {len(filtered_trades)} — {t.setup_name} ({t.direction}) "
-        f'<span style="background:{cat_color};color:white;padding:4px 10px;border-radius:4px;'
-        f'font-size:0.8em;font-weight:600;vertical-align:middle;">{current_cat}</span>',
+        f'<span style="background:{cat_color};color:white;padding:5px 12px;border-radius:8px;'
+        f'font-size:0.78em;font-weight:500;vertical-align:middle;">{current_cat}</span>',
         unsafe_allow_html=True,
     )
 
@@ -3612,7 +3833,10 @@ def render_review_trades():
     else:
         if t.entry_time and len(t.entry_time) >= 10:
             day_key = t.entry_time[:10]
-            source_df = daily_dfs.get(day_key)
+            # Try ticker-prefixed key first (multi-ticker mode), fall back to date-only
+            source_df = daily_dfs.get(f"{trade_ticker}|{day_key}")
+            if source_df is None:
+                source_df = daily_dfs.get(day_key)
 
     if source_df is not None and not source_df.empty:
         fig = build_trade_chart(source_df, t, trade_ticker, is_daily=is_daily)
@@ -3690,8 +3914,8 @@ def render_review_trades():
 def main():
     render_sidebar()
 
-    tab_train, tab_backtest, tab_daily, tab_review, tab_scanner, tab_library = st.tabs(
-        ["Train", "5m Backtest", "Daily Backtest", "Review", "Scanner", "Library"]
+    tab_train, tab_backtest, tab_daily, tab_review, tab_library = st.tabs(
+        ["Train", "5m Backtest", "Daily Backtest", "Review", "Library"]
     )
 
     with tab_train:
@@ -3705,9 +3929,6 @@ def main():
 
     with tab_review:
         render_review_trades()
-
-    with tab_scanner:
-        render_scanner()
 
     with tab_library:
         render_library()
