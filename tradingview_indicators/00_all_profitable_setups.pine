@@ -1,0 +1,322 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+// All 13 Profitable Setups Combined — Entries, Stops & Targets
+
+//@version=6
+indicator("BPA: All Profitable Setups", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ══════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════
+
+// ── Setup Toggles ──
+grpA = "Tier A — Best Setups (1:1 R:R)"
+showLLDB     = input.bool(true, "Fade Lower Low Double Bottom",    group=grpA)
+showHHDT     = input.bool(true, "Fade Higher High Double Top",     group=grpA)
+showSellClx  = input.bool(true, "Fade Consecutive Sell Climaxes",  group=grpA)
+showBuyClx   = input.bool(true, "Fade Consecutive Buy Climaxes",   group=grpA)
+showBOPB     = input.bool(true, "Breakout Pullback",               group=grpA)
+showStairs   = input.bool(true, "Bear Stairs Reversal",            group=grpA)
+
+grpB = "Tier B — Standard Setups"
+showDT       = input.bool(true, "Double Top (1:1)",                group=grpB)
+showDB       = input.bool(true, "Double Bottom (0.75:1)",          group=grpB)
+showLHDT     = input.bool(true, "Lower High Double Top (1:1)",     group=grpB)
+showMMClx    = input.bool(true, "Fade Exhaustive Climax at MM (0.75:1)", group=grpB)
+
+grpC = "Tier C — Scalps"
+showHLDB     = input.bool(true, "Higher Low Double Bottom (1:1)",  group=grpC)
+showWB       = input.bool(true, "Wedge Bottom (0.5:1)",            group=grpC)
+showWT       = input.bool(true, "Wedge Top (0.5:1)",               group=grpC)
+
+// ── Detection Parameters ──
+grpP = "Parameters"
+swingLB      = input.int(3,    "Swing Lookback",              minval=2, maxval=10, group=grpP)
+tolerance    = input.float(0.3,"DB/DT Price Tolerance %",     minval=0.05, maxval=2.0, step=0.05, group=grpP)
+clxLB        = input.int(10,   "Climax Lookback Bars",        minval=5, maxval=20, group=grpP)
+clxMult      = input.float(1.5,"Climax Size (x avg range)",   minval=1.0, maxval=3.0, step=0.1, group=grpP)
+minClx       = input.int(3,    "Min Climax Bars",             minval=2, maxval=5, group=grpP)
+baseLB       = input.int(8,    "BOPB Base Lookback",          minval=5, maxval=15, group=grpP)
+baseOff      = input.int(3,    "BOPB Base Offset",            minval=2, maxval=5, group=grpP)
+pbTol        = input.float(0.2,"BOPB Pullback Tolerance %",   minval=0.05, maxval=1.0, step=0.05, group=grpP)
+stairLB      = input.int(15,   "Stairs Lookback",             minval=10, maxval=25, group=grpP)
+minPush      = input.int(3,    "Stairs Min Pushes",           minval=2, maxval=5, group=grpP)
+bodyThr      = input.float(0.5,"Stairs Min Body/Range Ratio", minval=0.3, maxval=0.8, step=0.05, group=grpP)
+trendWin     = input.int(20,   "MM Trend Window",             minval=15, maxval=40, group=grpP)
+spkBars      = input.int(5,    "MM Spike Bars",               minval=3, maxval=10, group=grpP)
+exhMult      = input.float(2.5,"MM Exhaustion Size (x avg)",  minval=1.5, maxval=4.0, step=0.25, group=grpP)
+
+// ── Visual ──
+grpV = "Visual"
+lineLen      = input.int(10,   "Level Line Length (bars)",    minval=3, maxval=30, group=grpV)
+showEMA      = input.bool(true,"Show 20 EMA",                group=grpV)
+
+// ══════════════════════════════════════════════════════════════
+// CORE
+// ══════════════════════════════════════════════════════════════
+ema20    = ta.ema(close, 20)
+avgRange = ta.sma(high - low, 20)
+tick     = syminfo.mintick
+
+plot(showEMA ? ema20 : na, "EMA 20", color=color.new(#f59e0b, 30), linewidth=2)
+
+// Colors
+var color GREEN = #39ff14
+var color RED   = #ff2e63
+var color CYAN  = #00e5ff
+
+// ══════════════════════════════════════════════════════════════
+// HELPER — draw entry / stop / target levels
+// ══════════════════════════════════════════════════════════════
+drawLevels(int idx, bool isLong, float entryP, float stopP, float rr, string lbl, color col) =>
+    risk = math.abs(entryP - stopP)
+    if risk > 0
+        targetP = isLong ? entryP + rr * risk : entryP - rr * risk
+        line.new(idx, entryP,  idx + lineLen, entryP,  color=CYAN,  width=2)
+        line.new(idx, stopP,   idx + lineLen, stopP,   color=RED,   width=1, style=line.style_dashed)
+        line.new(idx, targetP, idx + lineLen, targetP, color=GREEN, width=1, style=line.style_dashed)
+        lblStyle = isLong ? label.style_label_up : label.style_label_down
+        label.new(idx, stopP, lbl, style=lblStyle, color=color.new(col, 75), textcolor=col, size=size.small)
+    true
+
+// ══════════════════════════════════════════════════════════════
+// SWING DETECTION
+// ══════════════════════════════════════════════════════════════
+
+// ── Swing Lows ──
+isSwingLow = true
+for j = 1 to swingLB
+    if not (low[swingLB] <= low[swingLB - j] and low[swingLB] <= low[swingLB + j])
+        isSwingLow := false
+        break
+
+// ── Swing Highs ──
+isSwingHigh = true
+for j = 1 to swingLB
+    if not (high[swingLB] >= high[swingLB - j] and high[swingLB] >= high[swingLB + j])
+        isSwingHigh := false
+        break
+
+// ══════════════════════════════════════════════════════════════
+// 1–3. DOUBLE BOTTOM  (DB → Long 0.75R | HL DB → Long 1R | LL DB Fade → Short 1R)
+// ══════════════════════════════════════════════════════════════
+var float dbLo1 = na
+var float dbLo2 = na
+if isSwingLow
+    dbLo1 := dbLo2
+    dbLo2 := low[swingLB]
+
+dbSpread  = math.abs(nz(dbLo1) - nz(dbLo2))
+dbAvg     = (nz(dbLo1) + nz(dbLo2)) / 2.0
+isDB      = not na(dbLo1) and not na(dbLo2) and dbAvg > 0 and (dbSpread / dbAvg * 100) < tolerance
+dbExact   = isDB and math.abs(dbLo2 - dbLo1) < tick * 2
+dbHL      = isDB and dbLo2 > dbLo1 and not dbExact
+dbLL      = isDB and dbLo2 < dbLo1 and not dbExact
+dbPlain   = isDB and not dbHL and not dbLL
+dbFired   = isSwingLow and isDB
+dbIdx     = bar_index - swingLB
+dbHi      = high[swingLB]
+dbLo      = low[swingLB]
+
+// Double Bottom → Long, 0.75 R:R
+if dbFired and dbPlain and showDB
+    drawLevels(dbIdx, true, dbHi + tick, dbLo - tick, 0.75, "DB\n0.75R", GREEN)
+
+// Higher Low DB → Long, 1.0 R:R
+if dbFired and dbHL and showHLDB
+    drawLevels(dbIdx, true, dbHi + tick, dbLo - tick, 1.0, "HL DB\n1R", GREEN)
+
+// Fade Lower Low DB → Short, 1.0 R:R
+if dbFired and dbLL and showLLDB
+    drawLevels(dbIdx, false, dbLo - tick, dbHi + tick, 1.0, "LL DB\nFADE 1R", RED)
+
+// ══════════════════════════════════════════════════════════════
+// 4–6. DOUBLE TOP  (DT → Short 1R | LH DT → Short 1R | HH DT Fade → Long 1R)
+// ══════════════════════════════════════════════════════════════
+var float dtHi1 = na
+var float dtHi2 = na
+if isSwingHigh
+    dtHi1 := dtHi2
+    dtHi2 := high[swingLB]
+
+dtSpread  = math.abs(nz(dtHi1) - nz(dtHi2))
+dtAvg     = (nz(dtHi1) + nz(dtHi2)) / 2.0
+isDT      = not na(dtHi1) and not na(dtHi2) and dtAvg > 0 and (dtSpread / dtAvg * 100) < tolerance
+dtExact   = isDT and math.abs(dtHi2 - dtHi1) < tick * 2
+dtLH      = isDT and dtHi2 < dtHi1 and not dtExact
+dtHH      = isDT and dtHi2 > dtHi1 and not dtExact
+dtPlain   = isDT and not dtLH and not dtHH
+dtFired   = isSwingHigh and isDT
+dtIdx     = bar_index - swingLB
+dtHi      = high[swingLB]
+dtLo      = low[swingLB]
+
+// Double Top → Short, 1.0 R:R
+if dtFired and dtPlain and showDT
+    drawLevels(dtIdx, false, dtLo - tick, dtHi + tick, 1.0, "DT\n1R", RED)
+
+// Lower High DT → Short, 1.0 R:R
+if dtFired and dtLH and showLHDT
+    drawLevels(dtIdx, false, dtLo - tick, dtHi + tick, 1.0, "LH DT\n1R", RED)
+
+// Fade Higher High DT → Long, 1.0 R:R
+if dtFired and dtHH and showHHDT
+    drawLevels(dtIdx, true, dtHi + tick, dtLo - tick, 1.0, "HH DT\nFADE 1R", GREEN)
+
+// ══════════════════════════════════════════════════════════════
+// 7. WEDGE BOTTOM  (Long, 0.5 R:R)
+// ══════════════════════════════════════════════════════════════
+var float wb1 = na
+var float wb2 = na
+var float wb3 = na
+if isSwingLow
+    wb1 := wb2
+    wb2 := wb3
+    wb3 := low[swingLB]
+
+wbFired = isSwingLow and not na(wb1) and not na(wb2) and not na(wb3) and wb3 < wb2 and wb2 < wb1
+
+if wbFired and showWB
+    drawLevels(dbIdx, true, dbHi + tick, dbLo - tick, 0.5, "WB\n0.5R", GREEN)
+
+// ══════════════════════════════════════════════════════════════
+// 8. WEDGE TOP  (Short, 0.5 R:R)
+// ══════════════════════════════════════════════════════════════
+var float wt1 = na
+var float wt2 = na
+var float wt3 = na
+if isSwingHigh
+    wt1 := wt2
+    wt2 := wt3
+    wt3 := high[swingLB]
+
+wtFired = isSwingHigh and not na(wt1) and not na(wt2) and not na(wt3) and wt3 > wt2 and wt2 > wt1
+
+if wtFired and showWT
+    drawLevels(dtIdx, false, dtLo - tick, dtHi + tick, 0.5, "WT\n0.5R", RED)
+
+// ══════════════════════════════════════════════════════════════
+// 9. FADE CONSECUTIVE SELL CLIMAXES  (Long, 1.0 R:R)
+// ══════════════════════════════════════════════════════════════
+isBearClx(idx) =>
+    rng = high[idx] - low[idx]
+    close[idx] < open[idx] and rng > avgRange * clxMult
+
+bearClxN = 0
+for i = 1 to clxLB
+    if isBearClx(i)
+        bearClxN += 1
+
+scMid       = (high + low) / 2.0
+scBullClose = close > open and close > scMid
+scFired     = bearClxN >= minClx and scBullClose
+
+var int scLast = 0
+scOnce = scFired and (bar_index - scLast) > 3
+if scOnce
+    scLast := bar_index
+
+if scOnce and showSellClx
+    drawLevels(bar_index, true, high + tick, low - tick, 1.0, "SELL CLX\nFADE 1R", GREEN)
+
+// ══════════════════════════════════════════════════════════════
+// 10. FADE CONSECUTIVE BUY CLIMAXES  (Short, 1.0 R:R)
+// ══════════════════════════════════════════════════════════════
+isBullClx(idx) =>
+    rng = high[idx] - low[idx]
+    close[idx] > open[idx] and rng > avgRange * clxMult
+
+bullClxN = 0
+for i = 1 to clxLB
+    if isBullClx(i)
+        bullClxN += 1
+
+bcMid       = (high + low) / 2.0
+bcBearClose = close < open and close < bcMid
+bcFired     = bullClxN >= minClx and bcBearClose
+
+var int bcLast = 0
+bcOnce = bcFired and (bar_index - bcLast) > 3
+if bcOnce
+    bcLast := bar_index
+
+if bcOnce and showBuyClx
+    drawLevels(bar_index, false, low - tick, high + tick, 1.0, "BUY CLX\nFADE 1R", RED)
+
+// ══════════════════════════════════════════════════════════════
+// 11. BREAKOUT PULLBACK  (Long, 1.0 R:R)
+// ══════════════════════════════════════════════════════════════
+bpTop   = ta.highest(high, baseLB - baseOff)[baseOff]
+bpBot   = ta.lowest(low, baseLB - baseOff)[baseOff]
+bpRange = bpTop - bpBot
+bpBO    = close[2] > bpTop and (high[2] - low[2]) > bpRange * 0.5
+bpTest  = low <= bpTop and low >= bpTop * (1 - pbTol / 100)
+bpMid   = (high + low) / 2.0
+bpGood  = close > bpMid
+bpFired = bpBO and bpTest and bpGood
+
+var int bpLast = 0
+bpOnce = bpFired and (bar_index - bpLast) > 5
+if bpOnce
+    bpLast := bar_index
+
+if bpOnce and showBOPB
+    drawLevels(bar_index, true, high + tick, low - tick, 1.0, "BO PB\n1R", GREEN)
+
+// ══════════════════════════════════════════════════════════════
+// 12. BEAR STAIRS REVERSAL  (Long, 1.0 R:R)
+// ══════════════════════════════════════════════════════════════
+stMinima = 0
+for j = 2 to stairLB - 2
+    if low[j] < low[j - 1] and low[j] < low[j - 2] and low[j] < low[j + 1] and low[j] < low[j + 2]
+        stMinima += 1
+
+stMid    = (high + low) / 2.0
+stBody   = math.abs(close - open)
+stRng    = high - low
+stBull   = close > open and close > stMid
+stStrong = stRng > 0 ? (stBody / stRng) > bodyThr : false
+stFired  = stMinima >= minPush and stBull and stStrong
+
+var int stLast = 0
+stOnce = stFired and (bar_index - stLast) > 5
+if stOnce
+    stLast := bar_index
+
+if stOnce and showStairs
+    drawLevels(bar_index, true, high + tick, low - tick, 1.0, "STAIRS\n" + str.tostring(stMinima) + "P 1R", GREEN)
+
+// ══════════════════════════════════════════════════════════════
+// 13. EXHAUSTIVE BULL CLIMAX AT MEASURED MOVE  (Short, 0.75 R:R)
+// ══════════════════════════════════════════════════════════════
+mmSpkLo  = ta.lowest(low, spkBars)[trendWin - spkBars]
+mmSpkHi  = ta.highest(high, spkBars)[trendWin - spkBars]
+mmSpkSz  = mmSpkHi - mmSpkLo
+mmTarget = mmSpkHi + mmSpkSz
+mmChAvg  = ta.sma(high - low, trendWin - spkBars)
+
+mmHit    = high >= mmTarget
+mmBig    = (high - low) > mmChAvg * exhMult
+mmRevBar = close < (high + low) / 2.0
+mmFired  = close > ema20 and mmHit and mmBig and mmRevBar and mmSpkSz > 0
+
+var int mmLast = 0
+mmOnce = mmFired and (bar_index - mmLast) > 10
+if mmOnce
+    mmLast := bar_index
+
+if mmOnce and showMMClx
+    drawLevels(bar_index, false, low - tick, high + tick, 0.75, "MM CLX\n0.75R", RED)
+
+// MM target reference
+plot(showMMClx and mmSpkSz > 0 and close > ema20 ? mmTarget : na, "MM Target", color=color.new(#f59e0b, 60), linewidth=1, style=plot.style_cross)
+
+// ══════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════
+anyLong = (dbFired and dbPlain and showDB) or (dbFired and dbHL and showHLDB) or (dtFired and dtHH and showHHDT) or (wbFired and showWB) or (scOnce and showSellClx) or (bpOnce and showBOPB) or (stOnce and showStairs)
+anyShort = (dbFired and dbLL and showLLDB) or (dtFired and dtPlain and showDT) or (dtFired and dtLH and showLHDT) or (wtFired and showWT) or (bcOnce and showBuyClx) or (mmOnce and showMMClx)
+
+alertcondition(anyLong,  "BPA Long Signal",  "BPA profitable LONG setup detected")
+alertcondition(anyShort, "BPA Short Signal", "BPA profitable SHORT setup detected")
+alertcondition(anyLong or anyShort, "BPA Any Signal", "BPA profitable setup detected")
