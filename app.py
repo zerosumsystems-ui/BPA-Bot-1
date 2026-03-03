@@ -3143,7 +3143,114 @@ def render_backtest():
     m3.metric("Net P&L", f"${_pnl:+,.2f}")
     m4.metric("Expectancy", f"${s['expectancy']:.2f}")
     m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
-    m6.metric("Avg R", f"{s['avg_r_multiple']:+.2f}")
+    m6.metric("Max Drawdown", f"${s['max_drawdown']:.2f}")
+
+    # ── Trades per day + secondary metrics ──
+    _trade_dates = sorted(set(t.entry_time[:10] for t in trades if t.entry_time))
+    _num_days = len(_trade_dates) or 1
+    _trades_per_day = len(trades) / _num_days
+
+    n1, n2, n3, n4, n5, n6 = st.columns(6)
+    n1.metric("Trades/Day", f"{_trades_per_day:.1f}")
+    n2.metric("Avg R", f"{s['avg_r_multiple']:+.2f}")
+    n3.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
+    n4.metric("Recovery", f"{s['recovery_factor']:.1f}")
+    n5.metric("Avg Bars", f"{s['avg_bars_held']:.0f}")
+    n6.metric("Days Tested", f"{_num_days}")
+
+    # ── Trades per Day per Setup ──
+    _section_header("Trades / Day by Setup")
+    from collections import defaultdict as _defaultdict_bt
+    _setup_day_counts = _defaultdict_bt(set)
+    _setup_trade_counts = _defaultdict_bt(int)
+    for t in trades:
+        _sn = _normalize_setup_name(t.setup_name)
+        _setup_trade_counts[_sn] += 1
+        if t.entry_time:
+            _setup_day_counts[_sn].add(t.entry_time[:10])
+    _tpd_rows = []
+    for _sn in sorted(_setup_trade_counts.keys(), key=lambda x: _setup_trade_counts[x], reverse=True):
+        _s_days = len(_setup_day_counts[_sn]) or 1
+        _s_total = _setup_trade_counts[_sn]
+        _s_wins = sum(1 for t in trades if _normalize_setup_name(t.setup_name) == _sn and t.is_winner)
+        _s_pnl = sum(t.pnl for t in trades if _normalize_setup_name(t.setup_name) == _sn)
+        _tpd_rows.append({
+            "Setup": _sn,
+            "Trades": _s_total,
+            "Days Active": _s_days,
+            "Trades/Day": round(_s_total / _s_days, 2),
+            "Win%": f"{_s_wins / _s_total * 100:.0f}%",
+            "P&L": round(_s_pnl, 2),
+        })
+    st.dataframe(pd.DataFrame(_tpd_rows), hide_index=True, use_container_width=True, key="bt_tpd_table")
+
+    # ── Results by Symbol ──
+    _tickers_in_trades = sorted(set(getattr(t, "ticker", "") or "Unknown" for t in trades))
+    if len(_tickers_in_trades) > 1 or (_tickers_in_trades and _tickers_in_trades[0] != "Unknown"):
+        _section_header("Results by Symbol")
+        _sym_rows = []
+        for _sym in _tickers_in_trades:
+            _sym_trades = [t for t in trades if (getattr(t, "ticker", "") or "Unknown") == _sym]
+            _sym_wins = sum(1 for t in _sym_trades if t.is_winner)
+            _sym_pnl = sum(t.pnl for t in _sym_trades)
+            _sym_total = len(_sym_trades)
+            _sym_wr = _sym_wins / _sym_total * 100 if _sym_total > 0 else 0
+            _sym_exp = _sym_pnl / _sym_total if _sym_total > 0 else 0
+            _sym_days = len(set(t.entry_time[:10] for t in _sym_trades if t.entry_time)) or 1
+            _sym_eq = 0.0
+            _sym_peak = 0.0
+            _sym_dd = 0.0
+            for t in _sym_trades:
+                _sym_eq += t.pnl
+                if _sym_eq > _sym_peak:
+                    _sym_peak = _sym_eq
+                _d = _sym_peak - _sym_eq
+                if _d > _sym_dd:
+                    _sym_dd = _d
+            _sym_rows.append({
+                "Symbol": _sym,
+                "Trades": _sym_total,
+                "Win%": f"{_sym_wr:.0f}%",
+                "Net P&L": round(_sym_pnl, 2),
+                "Expectancy": round(_sym_exp, 2),
+                "Max DD": round(_sym_dd, 2),
+                "Trades/Day": round(_sym_total / _sym_days, 1),
+                "Days": _sym_days,
+            })
+        _sym_df = pd.DataFrame(_sym_rows).sort_values("Net P&L", ascending=False).reset_index(drop=True)
+        st.dataframe(_sym_df, hide_index=True, use_container_width=True, key="bt_symbol_table")
+
+    # ── Drawdown Chart ──
+    _section_header("Drawdown")
+    _dd_equity = 0.0
+    _dd_peak = 0.0
+    _dd_vals = []
+    _dd_max = 0.0
+    _dd_max_idx = 0
+    for i, t in enumerate(trades):
+        _dd_equity += t.pnl
+        if _dd_equity > _dd_peak:
+            _dd_peak = _dd_equity
+        _dd = _dd_peak - _dd_equity
+        _dd_vals.append(-_dd)
+        if _dd > _dd_max:
+            _dd_max = _dd
+            _dd_max_idx = i + 1
+    fig_dd = go.Figure()
+    fig_dd.add_trace(go.Scatter(
+        x=list(range(1, len(_dd_vals) + 1)), y=_dd_vals,
+        mode="lines", fill="tozeroy",
+        line=dict(color="#FF3B30", width=1.5),
+        fillcolor="rgba(255, 59, 48, 0.08)",
+        name="Drawdown",
+    ))
+    fig_dd.update_layout(**PLOTLY_LAYOUT, height=220,
+                          xaxis_title="Trade #", yaxis_title="Drawdown ($)")
+    dd1, dd2, dd3 = st.columns(3)
+    dd1.metric("Max Drawdown", f"${_dd_max:.2f}")
+    dd2.metric("At Trade #", f"{_dd_max_idx}")
+    dd3.metric("Current DD", f"${-_dd_vals[-1] if _dd_vals else 0:.2f}")
+    st.plotly_chart(fig_dd, use_container_width=True, key="bt_dd_chart")
 
     # ── Setup Ranking ──
     _section_header("Setup Ranking")
@@ -3408,7 +3515,18 @@ def render_backtest_daily():
     m3.metric("Net P&L", f"${_pnl:+,.2f}")
     m4.metric("Expectancy", f"${s['expectancy']:.2f}")
     m5.metric("Profit Factor", f"{s['profit_factor']:.2f}")
-    m6.metric("Avg R", f"{s['avg_r_multiple']:+.2f}")
+    m6.metric("Max Drawdown", f"${s['max_drawdown']:.2f}")
+
+    _dt_dates = sorted(set(t.entry_time[:10] for t in trades if t.entry_time))
+    _dt_num_days = len(_dt_dates) or 1
+    _dt_tpd = len(trades) / _dt_num_days
+    dn1, dn2, dn3, dn4, dn5, dn6 = st.columns(6)
+    dn1.metric("Trades/Day", f"{_dt_tpd:.1f}")
+    dn2.metric("Avg R", f"{s['avg_r_multiple']:+.2f}")
+    dn3.metric("Sharpe", f"{s['sharpe_annualized']:.2f}")
+    dn4.metric("Recovery", f"{s['recovery_factor']:.1f}")
+    dn5.metric("Avg Bars", f"{s['avg_bars_held']:.0f}")
+    dn6.metric("Days Tested", f"{_dt_num_days}")
 
     # ── Setup Ranking ──
     _section_header("Setup Ranking")
@@ -3802,8 +3920,9 @@ def render_review_trades():
     d2.metric("R", f"{t.r_multiple:+.2f}")
     d3.metric("Result", outcome_text)
 
+    _rv_order_type = getattr(t, "order_type", "Stop") or "Stop"
     d4, d5, d6 = st.columns(3)
-    d4.metric("Entry", f"${t.entry_price:.2f}")
+    d4.metric(f"Entry ({_rv_order_type})", f"${t.entry_price:.2f}")
     d5.metric("Stop", f"${t.stop_loss:.2f}")
     d6.metric("Exit", f"${t.exit_price:.2f}")
 
