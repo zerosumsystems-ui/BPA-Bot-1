@@ -2250,7 +2250,7 @@ def check_prefetch():
                 st.session_state["prefetch_ready"] = True
             executor = st.session_state.pop("prefetch_executor", None)
             if executor:
-                executor.shutdown(wait=True)
+                executor.shutdown(wait=False)
             st.session_state.pop("prefetch_future", None)
 
 
