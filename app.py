@@ -826,10 +826,7 @@ def get_databento_key() -> str:
 
 @st.cache_resource
 def _init_data_source_v2():
-    """
-    Initialize the data source once per app session.
-    (Cache invalidated to force Databento loading over yfinance fallback)
-    """
+    """Initialize the Databento data source once per app session."""
     source_type = os.environ.get("DATA_SOURCE", "auto")
     db_key = get_databento_key()
     return get_data_source(source_type, api_key=db_key)
@@ -871,7 +868,7 @@ def add_to_do_not_trade(ticker: str):
 
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=100)
 def fetch_chart_data_v2(ticker: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame | None:
-    """Fetch 5-minute OHLCV data for *ticker* using the configured data source (Databento → yFinance fallback)."""
+    """Fetch 5-minute OHLCV data for *ticker* using Databento."""
     try:
         source = _init_data_source_v2()
         df = source.fetch_historical(ticker, start_date, end_date)
@@ -881,7 +878,7 @@ def fetch_chart_data_v2(ticker: str, start_date: str | None = None, end_date: st
             if hasattr(source, '_last_error_message') and source._last_error_message:
                 logging.getLogger(__name__).warning(f"Data fetch failed for {ticker}: {source._last_error_message}")
             return None
-        # Flatten multi-level columns if present (yFinance fallback may produce these)
+        # Flatten multi-level columns if present
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
@@ -2853,9 +2850,7 @@ def render_scanner():
             end_date = scan_date.strftime("%Y-%m-%d")
 
             bulk_df = pd.DataFrame()
-            use_yfinance = False
 
-            # Try Databento first (fast bulk fetch)
             db_key = get_databento_key()
             if db_key:
                 try:
@@ -2864,65 +2859,35 @@ def render_scanner():
                     if hasattr(ds, 'get_bulk_chart_data'):
                         bulk_df = ds.get_bulk_chart_data(tickers, start_date, end_date)
                 except Exception as e:
-                    st.caption(f"Databento unavailable ({e}), falling back to yFinance...")
-
-            # Fallback: use yFinance (slower, ticker-by-ticker)
-            if bulk_df.empty:
-                use_yfinance = True
-                try:
-                    import yfinance as yf
-                except ImportError:
-                    st.error("Neither Databento nor yFinance available. Install yfinance: pip install yfinance")
+                    st.error(f"Databento unavailable: {e}")
                     return
+            else:
+                st.error("DATABENTO_API_KEY is not set.")
+                return
+
+            if bulk_df.empty:
+                st.warning("No data returned from Databento for this date range.")
+                return
 
             found_charts = []
 
-            if use_yfinance:
-                # yFinance fallback: scan ticker-by-ticker
-                progress_bar = st.progress(0, text="Scanning with yFinance...")
-                total = len(tickers)
-                for i, sym in enumerate(tickers):
-                    if len(found_charts) >= 20:  # Cap results to avoid timeout
-                        break
-                    progress_bar.progress((i + 1) / total, text=f"Scanning {sym} ({i+1}/{total})...")
-                    try:
-                        sym_df = yf.download(sym, start=start_date, end=end_date, interval="5m", progress=False)
-                        if sym_df is None or sym_df.empty:
-                            continue
-                        if isinstance(sym_df.columns, pd.MultiIndex):
-                            sym_df.columns = sym_df.columns.get_level_values(0)
-                        if len(sym_df) < 10:
-                            continue
-                        result = analyze_bars(sym_df)
-                        for s in result.get("setups", []):
-                            name = s.get("setup_name", "") if isinstance(s, dict) else getattr(s, "setup_name", "")
-                            if name == find_setup:
-                                fig = build_chart(sym_df, sym)
-                                fig = _add_annotations(fig, sym_df, {"action": result.get("action", ""), "setups": [s]}, best_only=False)
-                                found_charts.append((sym, fig))
-                                break
-                    except Exception:
-                        pass
-                progress_bar.empty()
-            else:
-                # Databento bulk path
-                grouped = bulk_df.groupby("symbol")
-                progress_bar = st.progress(0, text="Analyzing...")
-                total = len(grouped)
-                for i, (sym, sym_df) in enumerate(grouped):
-                    progress_bar.progress((i + 1) / total, text=f"Analyzing {sym}...")
-                    try:
-                        result = analyze_bars(sym_df)
-                        for s in result.get("setups", []):
-                            name = s.get("setup_name", "") if isinstance(s, dict) else getattr(s, "setup_name", "")
-                            if name == find_setup:
-                                fig = build_chart(sym_df, sym)
-                                fig = _add_annotations(fig, sym_df, {"action": result.get("action", ""), "setups": [s]}, best_only=False)
-                                found_charts.append((sym, fig))
-                                break
-                    except Exception:
-                        pass
-                progress_bar.empty()
+            grouped = bulk_df.groupby("symbol")
+            progress_bar = st.progress(0, text="Analyzing...")
+            total = len(grouped)
+            for i, (sym, sym_df) in enumerate(grouped):
+                progress_bar.progress((i + 1) / total, text=f"Analyzing {sym}...")
+                try:
+                    result = analyze_bars(sym_df)
+                    for s in result.get("setups", []):
+                        name = s.get("setup_name", "") if isinstance(s, dict) else getattr(s, "setup_name", "")
+                        if name == find_setup:
+                            fig = build_chart(sym_df, sym)
+                            fig = _add_annotations(fig, sym_df, {"action": result.get("action", ""), "setups": [s]}, best_only=False)
+                            found_charts.append((sym, fig))
+                            break
+                except Exception:
+                    pass
+            progress_bar.empty()
 
             if found_charts:
                 st.success(f"Found {len(found_charts)} stocks with **{find_setup}**!")
@@ -2974,9 +2939,6 @@ def render_backtest():
             start_str = start.strftime("%Y-%m-%d")
             end_str = end.strftime("%Y-%m-%d")
 
-            if source.name() == "yFinance" and bt_days > 40:
-                st.warning("yFinance only provides ~60 calendar days of 5-min data.")
-
             def _count_days(df):
                 if df is None or df.empty:
                     return 0
@@ -2985,7 +2947,7 @@ def render_backtest():
 
             # ── Phase 1: Fetch all ticker data in parallel ──
             def _fetch_one(ticker):
-                """Fetch data for one ticker with yFinance fallback. Thread-safe."""
+                """Fetch data for one ticker. Thread-safe."""
                 src = _init_data_source_v2()
                 df = None
                 err = None
@@ -2993,16 +2955,6 @@ def render_backtest():
                     df = src.fetch_historical(ticker, start_str, end_str)
                 except Exception as e:
                     err = f"{ticker}: {src.name()} failed: {e}"
-
-                got = _count_days(df)
-                if got < max(2, bt_days // 2) and src.name() != "yFinance" and bt_days > 1:
-                    try:
-                        from data_source import YFinanceSource
-                        yf_df = YFinanceSource().fetch_historical(ticker, start_str, end_str)
-                        if _count_days(yf_df) > got:
-                            df = yf_df
-                    except Exception:
-                        pass
                 return ticker, df, err
 
             import concurrent.futures
@@ -3333,7 +3285,7 @@ def render_backtest():
 # ─────────────────────────── DAILY BACKTEST TAB ──────────────────────────────
 
 def render_backtest_daily():
-    """Daily-chart backtesting — uses daily bars so yFinance can go back years."""
+    """Daily-chart backtesting — uses Databento daily bars."""
     from backtester import run_daily_backtest, trades_to_dataframe
 
     c1, c2 = st.columns([2, 1])
@@ -3368,11 +3320,7 @@ def render_backtest_daily():
 
     if run_btn:
 
-        try:
-            import yfinance as yf
-        except ImportError:
-            st.error("yfinance is required for daily backtesting. Install it with: pip install yfinance")
-            return
+        source = _init_data_source_v2()
 
         all_trades = []
         ticker_summaries = []
@@ -3383,7 +3331,7 @@ def render_backtest_daily():
         for ti, sym in enumerate(dt_ticker_list):
             progress_bar.progress((ti) / len(dt_ticker_list), text=f"Backtesting {sym} ({ti+1}/{len(dt_ticker_list)})...")
             try:
-                df = yf.download(sym, period=dt_years, interval="1d", progress=False)
+                df = source.fetch_daily(sym, period=dt_years)
             except Exception as e:
                 st.caption(f"{sym}: failed to fetch data ({e})")
                 continue
