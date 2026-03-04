@@ -3,8 +3,6 @@ Confidence vs Profitability Analysis
 Run locally:  cd /path/to/BPA-Bot-1 && python test_confidence.py
 
 Tests whether the algo's confidence scores actually predict profitability.
-
-Requirements: pip install yfinance pandas numpy scipy
 """
 import pandas as pd
 import numpy as np
@@ -18,6 +16,7 @@ warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from backtester import run_backtest, run_multi_day_backtest
+from data_source import get_data_source
 
 tickers = [
     # Ultra-liquid ETFs
@@ -33,44 +32,38 @@ tickers = [
 all_trades = []
 
 print("Fetching data and running backtests (max 60 days of 5m data)...")
-try:
-    import yfinance as yf
-except ImportError:
-    print("ERROR: yfinance not installed. Run: pip3 install yfinance")
+
+# Ensure Databento key is set
+db_key = os.environ.get("DATABENTO_API_KEY", "")
+if not db_key:
+    print("DATABENTO_API_KEY is not set. Please set it to run this analysis.")
     sys.exit(1)
+
+source = get_data_source(api_key=db_key)
 
 for ticker in tickers:
     try:
-        # Use period="60d" instead of start/end dates — yFinance handles the window correctly
-        df = yf.download(ticker, period="60d", interval="5m", progress=False)
+        # Fetch last 60 days of 5m RTH bars from Databento
+        end = dt.date.today().isoformat()
+        start = (dt.date.today() - dt.timedelta(days=60)).isoformat()
+        df = source.fetch_historical(ticker, start, end)
         if df is None or df.empty:
             print(f"  {ticker}: no data")
             continue
 
-        # Flatten MultiIndex columns (yfinance 0.2.x+)
+        # Flatten MultiIndex columns if present
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        # Normalize column names to capitalized (yfinance 0.2.31+ returns lowercase)
-        col_map = {}
-        for c in df.columns:
-            if isinstance(c, str):
-                col_map[c] = c.capitalize() if c.lower() != "adj close" else "Adj Close"
-        df.rename(columns=col_map, inplace=True)
-
+        # Ensure required columns
         required = ["Open", "High", "Low", "Close"]
         if not all(c in df.columns for c in required):
             print(f"  {ticker}: missing columns {list(df.columns)}")
             continue
 
         df = df.dropna(subset=required)
-        df.index = pd.to_datetime(df.index)
 
-        # Filter to RTH
-        if df.index.tzinfo is not None:
-            df.index = df.index.tz_convert("US/Eastern")
-            df = df.between_time("09:30", "15:59")
-
+        # Data_source returns Eastern-localized index already; group by date
         daily_dfs = {}
         for date, group in df.groupby(df.index.date):
             if len(group) >= 10:
@@ -78,6 +71,7 @@ for ticker in tickers:
         if not daily_dfs:
             print(f"  {ticker}: no valid trading days (need 10+ bars per day)")
             continue
+
         report = run_multi_day_backtest(daily_dfs, mode="scalp", ticker=ticker)
         for t in report["trades"]:
             t.ticker = ticker

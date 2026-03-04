@@ -1461,9 +1461,21 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         ticker = sys.argv[1].upper()
         try:
-            import yfinance as yf
-            print(f"Fetching 5-min data for {ticker}...")
-            df = yf.download(ticker, period="1d", interval="5m", progress=False)
+            from data_source import get_data_source
+            import os
+
+            db_key = os.environ.get("DATABENTO_API_KEY", "")
+            if not db_key:
+                print("DATABENTO_API_KEY is not set. Please set it in your environment to fetch data.")
+                sys.exit(1)
+
+            source = get_data_source(api_key=db_key)
+            print(f"Fetching 5-min data for {ticker} via Databento...")
+            df = source.fetch_historical(ticker)
+            if df is None or df.empty:
+                print(f"No data returned for {ticker} from Databento.")
+                sys.exit(1)
+
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
@@ -1487,5 +1499,5 @@ if __name__ == "__main__":
             for t in report["trades"]:
                 icon = "✅" if t.is_winner else "❌"
                 print(f"  {icon} {t.setup_name} ({t.direction}) bar {t.entry_bar} → {t.exit_reason}: ${t.pnl:+.2f} ({t.r_multiple:+.1f}R)")
-        except ImportError:
-            print("yfinance not installed — provide a DataFrame directly.")
+        except Exception as e:
+            print(f"Databento fetch or backtest failed: {e}")

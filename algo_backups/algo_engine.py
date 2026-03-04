@@ -1073,23 +1073,37 @@ def analyze_bars(df: pd.DataFrame) -> dict:
 
 if __name__ == "__main__":
     import time
-    import yfinance as yf
+    import os
 
     ticker = "AAPL"
-    print(f"Fetching 5-min data for {ticker}...")
-    df = yf.download(ticker, period="1d", interval="5m", progress=False)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    try:
+        from data_source import get_data_source
+        db_key = os.environ.get("DATABENTO_API_KEY", "")
+        if not db_key:
+            print("DATABENTO_API_KEY is not set. Please set it to run the CLI demo.")
+            raise SystemExit(1)
 
-    start = time.perf_counter()
-    result = analyze_bars(df)
-    elapsed = (time.perf_counter() - start) * 1000
+        source = get_data_source(api_key=db_key)
+        print(f"Fetching 5-min data for {ticker} via Databento...")
+        df = source.fetch_historical(ticker)
+        if df is None or df.empty:
+            print("No data returned from Databento.")
+            raise SystemExit(1)
 
-    print(f"\n⚡ Analysis completed in {elapsed:.1f}ms")
-    print(f"Day Type: {result['day_type']}")
-    print(f"Market Cycle: {result['market_cycle']}")
-    print(f"Action: {result['action']} (confidence: {result['confidence']:.0%})")
-    print(f"Reasoning: {result['reasoning']}")
-    print(f"\nTop Setups:")
-    for s in result["setups"]:
-        print(f"  • {s['setup_name']} @ bar {s['entry_bar']} — {s['order_type']} @ ${s['entry_price']}")
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        start = time.perf_counter()
+        result = analyze_bars(df)
+        elapsed = (time.perf_counter() - start) * 1000
+
+        print(f"\n⚡ Analysis completed in {elapsed:.1f}ms")
+        print(f"Day Type: {result['day_type']}")
+        print(f"Market Cycle: {result['market_cycle']}")
+        print(f"Action: {result['action']} (confidence: {result['confidence']:.0%})")
+        print(f"Reasoning: {result['reasoning']}")
+        print(f"\nTop Setups:")
+        for s in result["setups"]:
+            print(f"  • {s['setup_name']} @ bar {s['entry_bar']} — {s['order_type']} @ ${s['entry_price']}")
+    except Exception as e:
+        print(f"Databento demo failed: {e}")

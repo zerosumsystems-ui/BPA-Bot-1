@@ -1,6 +1,9 @@
 import pandas as pd
-import yfinance as yf
 from algo_engine import analyze_bars
+from data_source import get_data_source
+import os
+import datetime as dt
+
 
 def test_breakouts_and_microchannels(ticker: str, days: int = 5):
     """
@@ -9,11 +12,15 @@ def test_breakouts_and_microchannels(ticker: str, days: int = 5):
     """
     print(f"\n🚀 Scanning {days} days of {ticker} 5-min data for Breakouts and Microchannels...\n")
     try:
-        df = yf.download(ticker, period=f"{days}d", interval="5m", progress=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-            
-        if df.empty:
+        db_key = os.environ.get("DATABENTO_API_KEY", "")
+        if not db_key:
+            print("DATABENTO_API_KEY is not set. Set it to run this test.")
+            return
+        source = get_data_source(api_key=db_key)
+        end = dt.date.today().isoformat()
+        start = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+        df = source.fetch_historical(ticker, start, end)
+        if df is None or df.empty:
             print("No data found.")
             return
 
