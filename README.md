@@ -16,7 +16,7 @@ Over time, the bot learns your trading style grounded in price action theory.
 - **Frontend:** Streamlit with custom "Lion King Sunset" theme
 - **Charts:** Plotly candlestick + EMA20 overlay
 - **AI:** Google Gemini 3.1 Pro (vision — analyzes chart images)
-- **Data:** yFinance for live S&P 500 5-minute OHLCV
+ - **Data:** Databento for live S&P 500 5-minute OHLCV
 
 ## Running Locally
 
