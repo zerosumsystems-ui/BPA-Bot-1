@@ -412,23 +412,30 @@ def run_backtest(
 
         name = setup["setup_name"]
 
-        # Determine direction from setup name
-        # Count bull vs bear keyword matches to handle confluence names
-        # that may contain both (e.g. "Bear Spike & Channel Bottom + Bull Flag")
-        buy_keywords = ["Bull", "Bottom", "Buy", "High"]
-        sell_keywords = ["Bear", "Top", "Sell", "Low"]
-        bull_score = sum(name.count(kw) for kw in buy_keywords)
-        bear_score = sum(name.count(kw) for kw in sell_keywords)
-
-        if bull_score > bear_score:
-            direction = "Long"
-        elif bear_score > bull_score:
-            direction = "Short"
-        elif bull_score == bear_score and bull_score > 0:
-            # Tie-breaker: check if price is above or below EMA
-            direction = "Long" if bars[actual_bar_idx].close > ema[actual_bar_idx] else "Short"
+        # Determine direction: use explicit direction from detector if available,
+        # otherwise fall back to keyword scoring from setup name.
+        raw_dir = setup.get("direction")
+        if raw_dir is not None:
+            direction = "Long" if raw_dir == 1 else "Short"
         else:
-            continue  # No directional keywords at all — skip
+            # Keyword fallback for detectors that don't set direction
+            # (e.g. algo_engine.py double bottoms/tops, wedges, breakouts)
+            # Note: "High"/"Low" removed — they appear as adjectives in names
+            # like "Lower Low Double Bottom" and corrupt the score.
+            buy_keywords = ["Bull", "Bottom", "Buy"]
+            sell_keywords = ["Bear", "Top", "Sell"]
+            bull_score = sum(name.count(kw) for kw in buy_keywords)
+            bear_score = sum(name.count(kw) for kw in sell_keywords)
+
+            if bull_score > bear_score:
+                direction = "Long"
+            elif bear_score > bull_score:
+                direction = "Short"
+            elif bull_score == bear_score and bull_score > 0:
+                # Tie-breaker: check if price is above or below EMA
+                direction = "Long" if bars[actual_bar_idx].close > ema[actual_bar_idx] else "Short"
+            else:
+                continue  # No directional keywords at all — skip
 
         # Calculate Al Brooks levels from signal bar in ORIGINAL direction
         levels = calculate_al_brooks_levels(signal_bar, direction)
@@ -654,20 +661,24 @@ def run_daily_backtest(
 
         name = setup["setup_name"]
 
-        # Direction scoring (same as intraday)
-        buy_keywords = ["Bull", "Bottom", "Buy", "High"]
-        sell_keywords = ["Bear", "Top", "Sell", "Low"]
-        bull_score = sum(name.count(kw) for kw in buy_keywords)
-        bear_score = sum(name.count(kw) for kw in sell_keywords)
-
-        if bull_score > bear_score:
-            direction = "Long"
-        elif bear_score > bull_score:
-            direction = "Short"
-        elif bull_score == bear_score and bull_score > 0:
-            direction = "Long" if bars[actual_bar_idx].close > ema[actual_bar_idx] else "Short"
+        # Determine direction: use explicit direction from detector if available
+        raw_dir = setup.get("direction")
+        if raw_dir is not None:
+            direction = "Long" if raw_dir == 1 else "Short"
         else:
-            continue
+            buy_keywords = ["Bull", "Bottom", "Buy"]
+            sell_keywords = ["Bear", "Top", "Sell"]
+            bull_score = sum(name.count(kw) for kw in buy_keywords)
+            bear_score = sum(name.count(kw) for kw in sell_keywords)
+
+            if bull_score > bear_score:
+                direction = "Long"
+            elif bear_score > bull_score:
+                direction = "Short"
+            elif bull_score == bear_score and bull_score > 0:
+                direction = "Long" if bars[actual_bar_idx].close > ema[actual_bar_idx] else "Short"
+            else:
+                continue
 
         # Calculate Al Brooks levels from signal bar in ORIGINAL direction
         levels = calculate_al_brooks_levels(signal_bar, direction)
