@@ -117,9 +117,10 @@ def test_filter_rule3_broad_channel_bug():
     'Broad Bull Channel' / 'Broad Bear Channel'. This test verifies whether
     the filter actually triggers for broad channels.
     """
-    # Create a dummy breakout setup
+    # Create a dummy breakout setup (set setup_type so filter_by_context sees the name)
     dummy_setup = Setup(
         setup_name="Breakout Long",
+        setup_type="Breakout Long",
         signal_bar=5,
         entry_bar=6,
         stop_loss=99.0,
@@ -127,9 +128,9 @@ def test_filter_rule3_broad_channel_bug():
         confidence=0.6,
     )
 
-    # Test with actual broad channel market cycle values
-    result_bull = filter_by_context([dummy_setup], "Trading Range Day", "Broad Bull Channel")
-    result_bear = filter_by_context([dummy_setup], "Trading Range Day", "Broad Bear Channel")
+    # Use Broad channel as day_type too (not "Trading Range Day") so RULE 2 doesn't interfere
+    result_bull = filter_by_context([dummy_setup], "Broad Bull Channel", "Broad Bull Channel")
+    result_bear = filter_by_context([dummy_setup], "Broad Bear Channel", "Broad Bear Channel")
 
     # With the bug, breakouts pass through (not filtered) in broad channels
     bull_filtered = len(result_bull) == 0
