@@ -1,0 +1,205 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0
+// © BPA Bot — Al Brooks Price Action
+
+//@version=6
+indicator("BPA: Spike and Channel", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ── Inputs ──
+minSpikeBars    = input.int(3, "Min Consecutive Spike Bars", minval=2, maxval=6)
+spikeBodyRatio  = input.float(0.5, "Min Body/Range Ratio (Spike)", minval=0.3, maxval=0.8, step=0.05)
+channelDecay    = input.float(0.5, "Channel Decay Threshold (vs Spike)", minval=0.2, maxval=0.8, step=0.05)
+wedgePushes     = input.int(3, "Pushes for Wedge Exhaustion", minval=2, maxval=5)
+swingLookback   = input.int(3, "Swing Point Lookback", minval=2, maxval=5)
+showMM          = input.bool(true, "Show Measured Move Target")
+showChannel     = input.bool(true, "Show Channel Lines")
+alertOn         = input.bool(true, "Enable Alerts")
+
+// ── EMA ──
+ema20 = ta.ema(close, 20)
+plot(ema20, "EMA 20", color=color.new(#888888, 40), linewidth=1)
+
+// ── Helper: Bar Properties ──
+body      = math.abs(close - open)
+rng       = high - low
+isBull    = close > open
+isBear    = close < open
+midpoint  = (high + low) / 2.0
+bodyRatio = rng > 0 ? body / rng : 0.0
+
+// ── STEP 1: Detect Spike ──
+// Count consecutive strong bull bars looking back
+bullSpikeCount = 0
+for j = 1 to 6
+    if close[j] > open[j] and close[j] > (high[j] + low[j]) / 2.0
+        br = (high[j] - low[j]) > 0 ? math.abs(close[j] - open[j]) / (high[j] - low[j]) : 0.0
+        if br >= spikeBodyRatio
+            bullSpikeCount += 1
+        else
+            break
+    else
+        break
+
+// Count consecutive strong bear bars looking back
+bearSpikeCount = 0
+for j = 1 to 6
+    if close[j] < open[j] and close[j] < (high[j] + low[j]) / 2.0
+        br = (high[j] - low[j]) > 0 ? math.abs(close[j] - open[j]) / (high[j] - low[j]) : 0.0
+        if br >= spikeBodyRatio
+            bearSpikeCount += 1
+        else
+            break
+    else
+        break
+
+hasBullSpike = bullSpikeCount >= minSpikeBars
+hasBearSpike = bearSpikeCount >= minSpikeBars
+
+// ── Track Spike State ──
+var bool  inBullSC     = false
+var bool  inBearSC     = false
+var float spikeHigh    = na
+var float spikeLow     = na
+var float spikeSize    = na
+var float spikeAvgRng  = na
+var int   spikeEndBar  = 0
+var int   channelPushes = 0
+var float lastPushHigh = na
+var float lastPushLow  = na
+
+// ── New Bull Spike Detected ──
+newBullSpike = hasBullSpike and not inBullSC and not inBearSC
+if newBullSpike
+    inBullSC     := true
+    inBearSC     := false
+    spikeHigh    := ta.highest(high, bullSpikeCount + 1)
+    spikeLow     := ta.lowest(low, bullSpikeCount + 1)
+    spikeSize    := spikeHigh - spikeLow
+    // Average range of spike bars
+    sumRng = 0.0
+    for j = 1 to bullSpikeCount
+        sumRng += high[j] - low[j]
+    spikeAvgRng  := sumRng / bullSpikeCount
+    spikeEndBar  := bar_index
+    channelPushes := 0
+    lastPushHigh := spikeHigh
+
+// ── New Bear Spike Detected ──
+newBearSpike = hasBearSpike and not inBearSC and not inBullSC
+if newBearSpike
+    inBearSC     := true
+    inBullSC     := false
+    spikeHigh    := ta.highest(high, bearSpikeCount + 1)
+    spikeLow     := ta.lowest(low, bearSpikeCount + 1)
+    spikeSize    := spikeHigh - spikeLow
+    sumRng = 0.0
+    for j = 1 to bearSpikeCount
+        sumRng += high[j] - low[j]
+    spikeAvgRng  := sumRng / bearSpikeCount
+    spikeEndBar  := bar_index
+    channelPushes := 0
+    lastPushLow  := spikeLow
+
+// ── STEP 2: Channel Monitoring ──
+barsInChannel = bar_index - spikeEndBar
+isInChannel   = barsInChannel > 3
+
+// Current momentum: average range of last 5 bars vs spike average
+recentAvgRng = ta.sma(high - low, 5)
+momentumDecayed = not na(spikeAvgRng) and spikeAvgRng > 0 ? recentAvgRng < spikeAvgRng * channelDecay : false
+
+// ── STEP 3: Count Channel Pushes (Swing Highs for Bull, Swing Lows for Bear) ──
+// Simple swing high: high > high[1] and high > high[2] and high[1] > high[2]
+isSwingHigh = high[swingLookback] > high[swingLookback + 1] and high[swingLookback] > high[swingLookback + 2] and high[swingLookback] > high[swingLookback - 1] and high[swingLookback] > high[swingLookback - 2]
+isSwingLow  = low[swingLookback] < low[swingLookback + 1] and low[swingLookback] < low[swingLookback + 2] and low[swingLookback] < low[swingLookback - 1] and low[swingLookback] < low[swingLookback - 2]
+
+// Bull S&C: count new swing highs that extend the channel
+if inBullSC and isInChannel and isSwingHigh
+    sh = high[swingLookback]
+    if sh > lastPushHigh
+        channelPushes += 1
+        lastPushHigh  := sh
+
+// Bear S&C: count new swing lows that extend the channel
+if inBearSC and isInChannel and isSwingLow
+    sl = low[swingLookback]
+    if sl < lastPushLow
+        channelPushes += 1
+        lastPushLow   := sl
+
+// ── STEP 4: Measured Move Target ──
+mmTargetBull = not na(spikeHigh) and not na(spikeSize) ? spikeHigh + spikeSize : na
+mmTargetBear = not na(spikeLow) and not na(spikeSize) ? spikeLow - spikeSize : na
+
+// Plot MM target
+plot(showMM and inBullSC and isInChannel ? mmTargetBull : na, "MM Target (Bull)", color=color.new(#f59e0b, 50), linewidth=2, style=plot.style_stepline)
+plot(showMM and inBearSC and isInChannel ? mmTargetBear : na, "MM Target (Bear)", color=color.new(#f59e0b, 50), linewidth=2, style=plot.style_stepline)
+
+// ── STEP 5: Exhaustion Detection ──
+// Bull S&C exhaustion: 3+ pushes OR price hits MM target + reversal bar
+bullExhaustion = inBullSC and isInChannel and momentumDecayed and (channelPushes >= wedgePushes or (not na(mmTargetBull) and high >= mmTargetBull)) and isBear and close < midpoint
+
+// Bear S&C exhaustion: mirror
+bearExhaustion = inBearSC and isInChannel and momentumDecayed and (channelPushes >= wedgePushes or (not na(mmTargetBear) and low <= mmTargetBear)) and isBull and close > midpoint
+
+// ── Prevent re-firing ──
+var int lastBullExhBar = 0
+var int lastBearExhBar = 0
+
+bullExhFire = bullExhaustion and (bar_index - lastBullExhBar) > 10
+bearExhFire = bearExhaustion and (bar_index - lastBearExhBar) > 10
+
+if bullExhFire
+    lastBullExhBar := bar_index
+if bearExhFire
+    lastBearExhBar := bar_index
+
+// ── Reset S&C state on exhaustion fire ──
+if bullExhFire
+    inBullSC := false
+if bearExhFire
+    inBearSC := false
+
+// ── Reset if pattern invalidated (too many bars without channel forming, or opposite spike) ──
+if inBullSC and barsInChannel > 60
+    inBullSC := false
+if inBearSC and barsInChannel > 60
+    inBearSC := false
+
+// ── VISUALS ──
+
+// Spike detection labels
+if newBullSpike
+    label.new(bar_index, low, "SPIKE\n▲ " + str.tostring(bullSpikeCount) + " bars", style=label.style_label_up, color=color.new(#22c55e, 75), textcolor=#22c55e, size=size.small)
+
+if newBearSpike
+    label.new(bar_index, high, "SPIKE\n▼ " + str.tostring(bearSpikeCount) + " bars", style=label.style_label_down, color=color.new(#ef4444, 75), textcolor=#ef4444, size=size.small)
+
+// Channel push count labels
+if inBullSC and isInChannel and isSwingHigh and high[swingLookback] >= lastPushHigh
+    label.new(bar_index - swingLookback, high[swingLookback], "P" + str.tostring(channelPushes), style=label.style_label_down, color=color.new(#3b82f6, 80), textcolor=#3b82f6, size=size.tiny)
+
+if inBearSC and isInChannel and isSwingLow and low[swingLookback] <= lastPushLow
+    label.new(bar_index - swingLookback, low[swingLookback], "P" + str.tostring(channelPushes), style=label.style_label_up, color=color.new(#3b82f6, 80), textcolor=#3b82f6, size=size.tiny)
+
+// Exhaustion labels
+if bullExhFire
+    pushInfo = str.tostring(channelPushes) + "P"
+    mmInfo = not na(mmTargetBull) and high >= mmTargetBull ? " MM" : ""
+    label.new(bar_index, high, "S&C\nEXH " + pushInfo + mmInfo, style=label.style_label_down, color=color.new(#ff2e63, 70), textcolor=#ff2e63, size=size.small)
+
+if bearExhFire
+    pushInfo = str.tostring(channelPushes) + "P"
+    mmInfo = not na(mmTargetBear) and low <= mmTargetBear ? " MM" : ""
+    label.new(bar_index, low, "S&C\nEXH " + pushInfo + mmInfo, style=label.style_label_up, color=color.new(#39ff14, 70), textcolor=#39ff14, size=size.small)
+
+// Candle coloring
+barcolor(newBullSpike ? color.new(#22c55e, 0) : newBearSpike ? color.new(#ef4444, 0) : bullExhFire ? color.new(#ff2e63, 0) : bearExhFire ? color.new(#39ff14, 0) : na)
+
+// ── Channel background shading ──
+bgcolor(inBullSC and isInChannel and momentumDecayed ? color.new(#22c55e, 93) : inBearSC and isInChannel and momentumDecayed ? color.new(#ef4444, 93) : na)
+
+// ── Alerts ──
+alertcondition(newBullSpike, "Bull Spike Detected", "Bull Spike — 3+ consecutive strong bull bars detected")
+alertcondition(newBearSpike, "Bear Spike Detected", "Bear Spike — 3+ consecutive strong bear bars detected")
+alertcondition(bullExhFire, "Bull S&C Exhaustion", "Spike & Channel Bull Exhaustion — channel wedge/MM target hit, look for reversal down")
+alertcondition(bearExhFire, "Bear S&C Exhaustion", "Spike & Channel Bear Exhaustion — channel wedge/MM target hit, look for reversal up")
