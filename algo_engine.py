@@ -793,7 +793,7 @@ def filter_by_context(setups: list[Setup], day_type: str, market_cycle: str) -> 
                 continue # Reject this setup (Major Trend Reversals are allowed to form in ranges)
                 
         # RULE 3: Do not buy Highs / sell Lows in a Broad Trading Range
-        if "Broad" in market_cycle or "Broad" in day_type:
+        if "Broad Range" in market_cycle:
             if "Breakout" in setup_name and "Test" not in setup_name:
                 continue # Reject breakouts in ranges (they usually fail)
                 
