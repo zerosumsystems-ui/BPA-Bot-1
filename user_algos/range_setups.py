@@ -75,16 +75,108 @@ def _find_spike(bars: List[Bar], end_idx: int, min_bars: int = 3, body_ratio: fl
     return None
 
 
+def _score_spike_strength(bars: List[Bar], sp_start: int, sp_end: int,
+                          direction: str, context_bars: int = 20) -> int:
+    """
+    Score a spike 0-5 based on Al Brooks' signs of strength.
+
+    1. BODY GAPS — bodies of consecutive spike bars don't overlap (measuring gaps)
+    2. CLOSES NEAR EXTREMES — small tails in the trend direction (< 25% of range)
+    3. SURPRISE SIZE — spike total range > 1.5× avg range of prior bars
+    4. MINIMAL OVERLAP — bars barely overlap each other (< 30% overlap)
+    5. CONSECUTIVE NEW EXTREMES — each bar makes a new high (bull) / new low (bear)
+    """
+    spike_bars = bars[sp_start:sp_end + 1]
+    n = len(spike_bars)
+    if n < 2:
+        return 0
+
+    score = 0
+
+    # ── 1. Body gaps (measuring gaps) ──
+    # Bull: close[k] > open[k+1] means bodies don't overlap
+    # Bear: close[k] < open[k+1]
+    body_gaps = 0
+    for k in range(n - 1):
+        if direction == "bull":
+            # Body gap up: prior bar's close > next bar's open
+            if spike_bars[k].close > spike_bars[k + 1].open:
+                body_gaps += 1
+        else:
+            # Body gap down: prior bar's close < next bar's open
+            if spike_bars[k].close < spike_bars[k + 1].open:
+                body_gaps += 1
+    if body_gaps > 0:
+        score += 1
+
+    # ── 2. Closes near extremes (small tails in trend direction) ──
+    # Bull: small upper tail = close near high. Tail ratio = (high - close) / range
+    # Bear: small lower tail = close near low. Tail ratio = (close - low) / range
+    tail_ratios = []
+    for b in spike_bars:
+        if b.range <= 0:
+            continue
+        if direction == "bull":
+            tail_ratios.append((b.high - b.close) / b.range)
+        else:
+            tail_ratios.append((b.close - b.low) / b.range)
+    if tail_ratios and sum(tail_ratios) / len(tail_ratios) < 0.25:
+        score += 1
+
+    # ── 3. Surprise size — spike range vs context ──
+    prior_start = max(0, sp_start - context_bars)
+    if prior_start < sp_start:
+        prior_bars = bars[prior_start:sp_start]
+        if prior_bars:
+            avg_prior_range = sum(b.range for b in prior_bars) / len(prior_bars)
+            spike_total_range = max(b.high for b in spike_bars) - min(b.low for b in spike_bars)
+            if avg_prior_range > 0 and spike_total_range > avg_prior_range * 1.5:
+                score += 1
+
+    # ── 4. Minimal overlap between spike bars ──
+    # Overlap = how much each bar's range sits inside the prior bar's range
+    # Bull: overlap = max(0, prior.high - curr.low) / curr.range
+    # Low overlap means bars are stacking cleanly
+    overlaps = []
+    for k in range(1, n):
+        curr_rng = spike_bars[k].range
+        if curr_rng <= 0:
+            continue
+        if direction == "bull":
+            overlap = max(0, spike_bars[k - 1].high - spike_bars[k].low) / curr_rng
+        else:
+            overlap = max(0, spike_bars[k].high - spike_bars[k - 1].low) / curr_rng
+        overlaps.append(overlap)
+    if overlaps and sum(overlaps) / len(overlaps) < 0.30:
+        score += 1
+
+    # ── 5. Consecutive new extremes ──
+    # Bull: each bar's high > prior bar's high
+    # Bear: each bar's low < prior bar's low
+    new_extremes = 0
+    for k in range(1, n):
+        if direction == "bull" and spike_bars[k].high > spike_bars[k - 1].high:
+            new_extremes += 1
+        elif direction == "bear" and spike_bars[k].low < spike_bars[k - 1].low:
+            new_extremes += 1
+    if new_extremes == n - 1:  # every bar made a new extreme
+        score += 1
+
+    return score
+
+
 def detect_spike_buy_market(bars: List[Bar], ema: List[float]) -> List[Setup]:
     """
     With-trend entry: buy/sell at the market immediately after a strong spike.
 
-    Bull spike (3+ consecutive strong bull bars) → Buy at the close of the
-    spike (next bar's open), stop below spike low, target 1:1.
+    Each spike is scored 0-5 on Brooks' signs of strength:
+      1. Body gaps (measuring gaps)
+      2. Closes near extremes (small tails)
+      3. Surprise size (> 1.5× avg prior range)
+      4. Minimal overlap between bars
+      5. Consecutive new extremes
 
-    Bear spike → Sell at close of spike, stop above spike high, target 1:1.
-
-    This is the simplest with-trend spike trade: you see strength, you join.
+    Score is included in the setup name so the backtester can filter by strength.
     """
     setups = []
     if len(bars) < 5:
@@ -97,18 +189,14 @@ def detect_spike_buy_market(bars: List[Bar], ema: List[float]) -> List[Setup]:
     last_fire = -999
 
     for i in range(MIN_SPIKE, len(bars)):
-        # Check if a spike just ended at bar i-1 (the previous bar is the
-        # last bar of the spike, and bar i is the first bar after the spike)
         spike = _find_spike(bars, i - 1, min_bars=MIN_SPIKE, body_ratio=BODY_RATIO)
         if spike is None:
             continue
 
         direction, sp_start, sp_end, s_high, s_low, s_avg = spike
 
-        # Spike must have JUST ended (sp_end == i-1)
         if sp_end != i - 1:
             continue
-
         if (i - last_fire) <= COOLDOWN:
             continue
 
@@ -117,19 +205,22 @@ def detect_spike_buy_market(bars: List[Bar], ema: List[float]) -> List[Setup]:
         if spike_size <= 0:
             continue
 
+        strength = _score_spike_strength(bars, sp_start, sp_end, direction)
+        n_bars = sp_end - sp_start + 1
+
         if direction == "bull":
             setups.append(Setup(
                 index=i, bar=curr,
-                setup_name="Bull Spike Buy",
-                direction=1, confidence=0.75,
-                notes=f"Buy at market after {sp_end - sp_start + 1}-bar bull spike. Stop below spike low.",
+                setup_name=f"Bull Spike Buy S{strength}",
+                direction=1, confidence=0.50 + strength * 0.10,
+                notes=f"S{strength}/5 | {n_bars}-bar bull spike. Stop below spike low.",
             ))
         else:
             setups.append(Setup(
                 index=i, bar=curr,
-                setup_name="Bear Spike Sell",
-                direction=-1, confidence=0.75,
-                notes=f"Sell at market after {sp_end - sp_start + 1}-bar bear spike. Stop above spike high.",
+                setup_name=f"Bear Spike Sell S{strength}",
+                direction=-1, confidence=0.50 + strength * 0.10,
+                notes=f"S{strength}/5 | {n_bars}-bar bear spike. Stop above spike high.",
             ))
         last_fire = i
 
@@ -140,11 +231,7 @@ def detect_spike_buy_pullback(bars: List[Bar], ema: List[float]) -> List[Setup]:
     """
     With-trend entry: wait for a small pullback after a strong spike, then enter.
 
-    After a bull spike, wait for price to pull back (bar with low < prior bar's low),
-    then enter on the pullback bar if it closes in the trend direction.
-    Stop below spike low, target 1:1.
-
-    This is the scaling-in approach: wait for a better entry after the spike.
+    Same spike strength scoring as detect_spike_buy_market.
     """
     setups = []
     if len(bars) < 6:
@@ -153,7 +240,7 @@ def detect_spike_buy_pullback(bars: List[Bar], ema: List[float]) -> List[Setup]:
     MIN_SPIKE = 3
     BODY_RATIO = 0.40
     COOLDOWN = 5
-    MAX_PB_BARS = 5   # pullback must happen within 5 bars of spike end
+    MAX_PB_BARS = 5
 
     last_fire = -999
 
@@ -163,7 +250,6 @@ def detect_spike_buy_pullback(bars: List[Bar], ema: List[float]) -> List[Setup]:
 
         curr = bars[i]
 
-        # Look for a spike that ended 1-5 bars ago
         for lookback in range(1, MAX_PB_BARS + 1):
             sp_end_candidate = i - lookback
             if sp_end_candidate < MIN_SPIKE:
@@ -181,30 +267,30 @@ def detect_spike_buy_pullback(bars: List[Bar], ema: List[float]) -> List[Setup]:
             if spike_size <= 0:
                 continue
 
+            strength = _score_spike_strength(bars, sp_start, sp_end, direction)
+            n_bars = sp_end - sp_start + 1
+
             if direction == "bull":
-                # Pullback: current bar's low < prior bar's low (price dipped)
                 if curr.low < bars[i - 1].low:
-                    # Pullback shouldn't give back more than 50% of spike
                     pullback_depth = s_high - curr.low
                     if pullback_depth <= spike_size * 0.50:
                         setups.append(Setup(
                             index=i, bar=curr,
-                            setup_name="Bull Spike Pullback Buy",
-                            direction=1, confidence=0.78,
-                            notes=f"Pullback buy {lookback} bars after {sp_end - sp_start + 1}-bar bull spike. PB depth {pullback_depth:.2f}.",
+                            setup_name=f"Bull Spike Pullback Buy S{strength}",
+                            direction=1, confidence=0.50 + strength * 0.10,
+                            notes=f"S{strength}/5 | PB buy {lookback}b after {n_bars}-bar bull spike. Depth {pullback_depth:.2f}.",
                         ))
                         last_fire = i
-                        break  # found a valid entry, stop looking
+                        break
             else:
-                # Pullback: current bar's high > prior bar's high (price bounced)
                 if curr.high > bars[i - 1].high:
                     pullback_depth = curr.high - s_low
                     if pullback_depth <= spike_size * 0.50:
                         setups.append(Setup(
                             index=i, bar=curr,
-                            setup_name="Bear Spike Pullback Sell",
-                            direction=-1, confidence=0.78,
-                            notes=f"Pullback sell {lookback} bars after {sp_end - sp_start + 1}-bar bear spike. PB depth {pullback_depth:.2f}.",
+                            setup_name=f"Bear Spike Pullback Sell S{strength}",
+                            direction=-1, confidence=0.50 + strength * 0.10,
+                            notes=f"S{strength}/5 | PB sell {lookback}b after {n_bars}-bar bear spike. Depth {pullback_depth:.2f}.",
                         ))
                         last_fire = i
                         break
