@@ -1,0 +1,139 @@
+// This Pine Script(R) is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// BPA Bot - Expanding Triangle (Megaphone) Detection
+// Brooks Price Action: Fade the extremes of a broadening formation.
+// Higher highs + lower lows = expanding range. Enter against the move at the edges.
+
+//@version=6
+indicator("BPA - Expanding Triangle (Megaphone)", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ── Inputs ──────────────────────────────────────────────────────────────
+lookback     = input.int(20, "Swing Lookback", minval=10, maxval=50, tooltip="Bars to scan for swing highs/lows")
+pivotLen     = input.int(2,  "Pivot Strength",  minval=1,  maxval=5,  tooltip="Bars on each side to confirm swing point")
+proxPct      = input.float(0.2, "Proximity % to Edge", minval=0.05, maxval=1.0, step=0.05, tooltip="How close price must be to the edge to trigger")
+
+showLabels   = input.bool(true,  "Show Signal Labels")
+showLines    = input.bool(true,  "Show Triangle Lines")
+showFills    = input.bool(true,  "Show Triangle Fills")
+
+colorBear    = input.color(color.new(#E53935, 0), "Short Signal Color")
+colorBull    = input.color(color.new(#43A047, 0), "Long Signal Color")
+colorTriFill = input.color(color.new(#2196F3, 85), "Triangle Fill Color")
+
+// ── Pivot Detection ─────────────────────────────────────────────────────
+pivotHigh = ta.pivothigh(high, pivotLen, pivotLen)
+pivotLow  = ta.pivotlow(low,  pivotLen, pivotLen)
+
+// Track the two most recent pivot highs and lows
+var float ph1 = na  // older pivot high
+var float ph2 = na  // newer pivot high
+var int   ph1_bar = na
+var int   ph2_bar = na
+
+var float pl1 = na  // older pivot low
+var float pl2 = na  // newer pivot low
+var int   pl1_bar = na
+var int   pl2_bar = na
+
+if not na(pivotHigh)
+    ph1     := ph2
+    ph1_bar := ph2_bar
+    ph2     := pivotHigh
+    ph2_bar := bar_index - pivotLen
+
+if not na(pivotLow)
+    pl1     := pl1 == pl2 ? pl1 : pl2
+    pl1_bar := pl1_bar == pl2_bar ? pl1_bar : pl2_bar
+    pl2     := pivotLow
+    pl2_bar := bar_index - pivotLen
+
+// Ensure we only update pl1 correctly
+if not na(pivotLow)
+    pl1     := pl2 == pivotLow ? pl1 : pl2
+    pl1_bar := pl2_bar == (bar_index - pivotLen) ? pl1_bar : pl2_bar
+    pl2     := pivotLow
+    pl2_bar := bar_index - pivotLen
+
+// ── Expanding Triangle Detection ────────────────────────────────────────
+hasData     = not na(ph1) and not na(ph2) and not na(pl1) and not na(pl2)
+higherHighs = hasData and ph2 > ph1
+lowerLows   = hasData and pl2 < pl1
+isExpanding = higherHighs and lowerLows
+
+// Ensure pivots are recent (within lookback)
+recentPivots = hasData and (bar_index - ph2_bar) < lookback and (bar_index - pl2_bar) < lookback
+
+expandingTriangle = isExpanding and recentPivots
+
+// ── Proximity to Edges ──────────────────────────────────────────────────
+proxThreshold = close * (proxPct / 100)
+nearTop    = expandingTriangle and math.abs(high - ph2) < proxThreshold
+nearBottom = expandingTriangle and math.abs(low - pl2)  < proxThreshold
+
+// ── Entry Signals ───────────────────────────────────────────────────────
+// Fade Top (Short): price near upper edge + bearish close
+fadeTopSignal = nearTop and close < (high + low) / 2
+
+// Fade Bottom (Long): price near lower edge + bullish close
+fadeBotSignal = nearBottom and close > (high + low) / 2
+
+// ── Visualization: Triangle Lines ───────────────────────────────────────
+var line upperLine = na
+var line lowerLine = na
+var linefill triFill = na
+
+if expandingTriangle and showLines
+    // Delete old lines
+    if not na(upperLine)
+        line.delete(upperLine)
+    if not na(lowerLine)
+        line.delete(lowerLine)
+    if not na(triFill)
+        linefill.delete(triFill)
+
+    // Draw upper boundary (rising)
+    upperLine := line.new(ph1_bar, ph1, ph2_bar, ph2, extend=extend.right,
+                          color=colorBear, style=line.style_dashed, width=2)
+    // Draw lower boundary (falling)
+    lowerLine := line.new(pl1_bar, pl1, pl2_bar, pl2, extend=extend.right,
+                          color=colorBull, style=line.style_dashed, width=2)
+
+    // Optional fill between lines
+    if showFills
+        triFill := linefill.new(upperLine, lowerLine, colorTriFill)
+
+// ── Plot Signals ────────────────────────────────────────────────────────
+plotshape(fadeTopSignal and showLabels, title="Fade Top (Short)",
+          style=shape.triangledown, location=location.abovebar,
+          color=colorBear, size=size.small, text="ET\nShort")
+
+plotshape(fadeBotSignal and showLabels, title="Fade Bottom (Long)",
+          style=shape.triangleup, location=location.belowbar,
+          color=colorBull, size=size.small, text="ET\nLong")
+
+// ── Alerts ──────────────────────────────────────────────────────────────
+alertcondition(fadeTopSignal, title="Expanding Triangle - Fade Top (Short)",
+               message="BPA: Expanding Triangle detected — Fade SHORT at upper edge")
+alertcondition(fadeBotSignal, title="Expanding Triangle - Fade Bottom (Long)",
+               message="BPA: Expanding Triangle detected — Fade LONG at lower edge")
+alertcondition(expandingTriangle, title="Expanding Triangle Active",
+               message="BPA: Expanding Triangle (Megaphone) pattern is active")
+
+// ── Info Table ──────────────────────────────────────────────────────────
+var table infoTable = table.new(position.top_right, 2, 5, bgcolor=color.new(color.white, 10), border_width=1)
+
+if barstate.islast
+    table.cell(infoTable, 0, 0, "Expanding Triangle", text_color=color.blue, text_size=size.small)
+    table.cell(infoTable, 1, 0, expandingTriangle ? "ACTIVE" : "---",
+               text_color=expandingTriangle ? color.green : color.gray, text_size=size.small)
+    table.cell(infoTable, 0, 1, "Upper Edge", text_color=color.red, text_size=size.tiny)
+    table.cell(infoTable, 1, 1, hasData ? str.tostring(ph2, format.mintick) : "---",
+               text_color=color.red, text_size=size.tiny)
+    table.cell(infoTable, 0, 2, "Lower Edge", text_color=color.green, text_size=size.tiny)
+    table.cell(infoTable, 1, 2, hasData ? str.tostring(pl2, format.mintick) : "---",
+               text_color=color.green, text_size=size.tiny)
+    table.cell(infoTable, 0, 3, "Range Width", text_color=color.black, text_size=size.tiny)
+    table.cell(infoTable, 1, 3, hasData ? str.tostring(ph2 - pl2, format.mintick) : "---",
+               text_color=color.black, text_size=size.tiny)
+    table.cell(infoTable, 0, 4, "Midpoint", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoTable, 1, 4, hasData ? str.tostring((ph2 + pl2) / 2, format.mintick) : "---",
+               text_color=color.gray, text_size=size.tiny)
