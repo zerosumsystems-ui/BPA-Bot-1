@@ -1,4 +1,3 @@
-import pandas as pd
 from typing import List, Dict, Any
 from algo_engine import Setup, Bar
 
@@ -34,35 +33,182 @@ def detect_bear_stairs(bars: List[Bar], ema: List[float]) -> List[Setup]:
                 ))
     return setups
 
-def detect_spike_and_channel_exhaustion(bars: List[Bar], ema: List[float]) -> List[Setup]:
+def _find_spike(bars: List[Bar], end_idx: int, min_bars: int = 3, body_ratio: float = 0.40):
     """
-    Setup #4: Spike-and-Channel at Measured Move Target Weakening.
+    Scan backwards from end_idx to find the most recent spike.
+    Returns (direction, start, end, high, low, avg_range) or None.
     """
-    # This requires deep measured-move projection logic. 
-    # For now, we will flag late-stage channels that lose momentum.
+    for j in range(end_idx, max(min_bars - 1, end_idx - 50) - 1, -1):
+        if j < min_bars:
+            break
+
+        # Bull spike
+        count = 0
+        for k in range(j, max(j - 8, -1), -1):
+            b = bars[k]
+            if b.is_bull and b.close > b.midpoint and b.range > 0 and b.body / b.range >= body_ratio:
+                count += 1
+            else:
+                break
+        if count >= min_bars:
+            start = j - count + 1
+            sl = bars[start:j + 1]
+            return ("bull", start, j,
+                    max(b.high for b in sl), min(b.low for b in sl),
+                    sum(b.range for b in sl) / len(sl))
+
+        # Bear spike
+        count = 0
+        for k in range(j, max(j - 8, -1), -1):
+            b = bars[k]
+            if b.is_bear and b.close < b.midpoint and b.range > 0 and b.body / b.range >= body_ratio:
+                count += 1
+            else:
+                break
+        if count >= min_bars:
+            start = j - count + 1
+            sl = bars[start:j + 1]
+            return ("bear", start, j,
+                    max(b.high for b in sl), min(b.low for b in sl),
+                    sum(b.range for b in sl) / len(sl))
+
+    return None
+
+
+def detect_spike_buy_market(bars: List[Bar], ema: List[float]) -> List[Setup]:
+    """
+    With-trend entry: buy/sell at the market immediately after a strong spike.
+
+    Bull spike (3+ consecutive strong bull bars) → Buy at the close of the
+    spike (next bar's open), stop below spike low, target 1:1.
+
+    Bear spike → Sell at close of spike, stop above spike high, target 1:1.
+
+    This is the simplest with-trend spike trade: you see strength, you join.
+    """
     setups = []
-    if len(bars) < 25: return setups
-    
-    for i in range(20, len(bars)):
+    if len(bars) < 5:
+        return setups
+
+    MIN_SPIKE = 3
+    BODY_RATIO = 0.40
+    COOLDOWN = 5
+
+    last_fire = -999
+
+    for i in range(MIN_SPIKE, len(bars)):
+        # Check if a spike just ended at bar i-1 (the previous bar is the
+        # last bar of the spike, and bar i is the first bar after the spike)
+        spike = _find_spike(bars, i - 1, min_bars=MIN_SPIKE, body_ratio=BODY_RATIO)
+        if spike is None:
+            continue
+
+        direction, sp_start, sp_end, s_high, s_low, s_avg = spike
+
+        # Spike must have JUST ended (sp_end == i-1)
+        if sp_end != i - 1:
+            continue
+
+        if (i - last_fire) <= COOLDOWN:
+            continue
+
         curr = bars[i]
-        past_20 = bars[i-20:i]
-        
-        # Did a massive spike happen ~15-20 bars ago?
-        early_bars = past_20[:5]
-        late_bars = past_20[10:]
-        
-        early_range = max(b.high for b in early_bars) - min(b.low for b in early_bars)
-        late_range = max(b.high for b in late_bars) - min(b.low for b in late_bars)
-        
-        # If the late channel is much slower/weaker than the initial spike
-        if early_range > 0 and (late_range / len(late_bars)) < (early_range / len(early_bars)) * 0.5:
-            # Bull Spike & Channel Exhaustion (Look for Bear signal)
-            if curr.close < curr.open and curr.close < curr.midpoint:
-                 setups.append(Setup(index=i, bar=curr, setup_name="Bull Spike & Channel Top", direction=-1, confidence=0.70, notes="Momentum heavily decayed from original spike."))
-            # Bear Spike & Channel Exhaustion (Look for Bull signal)
-            elif curr.close > curr.open and curr.close > curr.midpoint:
-                 setups.append(Setup(index=i, bar=curr, setup_name="Bear Spike & Channel Bottom", direction=1, confidence=0.70, notes="Momentum heavily decayed from original spike."))
-                 
+        spike_size = s_high - s_low
+        if spike_size <= 0:
+            continue
+
+        if direction == "bull":
+            setups.append(Setup(
+                index=i, bar=curr,
+                setup_name="Bull Spike Buy",
+                direction=1, confidence=0.75,
+                notes=f"Buy at market after {sp_end - sp_start + 1}-bar bull spike. Stop below spike low.",
+            ))
+        else:
+            setups.append(Setup(
+                index=i, bar=curr,
+                setup_name="Bear Spike Sell",
+                direction=-1, confidence=0.75,
+                notes=f"Sell at market after {sp_end - sp_start + 1}-bar bear spike. Stop above spike high.",
+            ))
+        last_fire = i
+
+    return setups
+
+
+def detect_spike_buy_pullback(bars: List[Bar], ema: List[float]) -> List[Setup]:
+    """
+    With-trend entry: wait for a small pullback after a strong spike, then enter.
+
+    After a bull spike, wait for price to pull back (bar with low < prior bar's low),
+    then enter on the pullback bar if it closes in the trend direction.
+    Stop below spike low, target 1:1.
+
+    This is the scaling-in approach: wait for a better entry after the spike.
+    """
+    setups = []
+    if len(bars) < 6:
+        return setups
+
+    MIN_SPIKE = 3
+    BODY_RATIO = 0.40
+    COOLDOWN = 5
+    MAX_PB_BARS = 5   # pullback must happen within 5 bars of spike end
+
+    last_fire = -999
+
+    for i in range(MIN_SPIKE + 1, len(bars)):
+        if (i - last_fire) <= COOLDOWN:
+            continue
+
+        curr = bars[i]
+
+        # Look for a spike that ended 1-5 bars ago
+        for lookback in range(1, MAX_PB_BARS + 1):
+            sp_end_candidate = i - lookback
+            if sp_end_candidate < MIN_SPIKE:
+                break
+
+            spike = _find_spike(bars, sp_end_candidate, min_bars=MIN_SPIKE, body_ratio=BODY_RATIO)
+            if spike is None:
+                continue
+
+            direction, sp_start, sp_end, s_high, s_low, s_avg = spike
+            if sp_end != sp_end_candidate:
+                continue
+
+            spike_size = s_high - s_low
+            if spike_size <= 0:
+                continue
+
+            if direction == "bull":
+                # Pullback: current bar's low < prior bar's low (price dipped)
+                if curr.low < bars[i - 1].low:
+                    # Pullback shouldn't give back more than 50% of spike
+                    pullback_depth = s_high - curr.low
+                    if pullback_depth <= spike_size * 0.50:
+                        setups.append(Setup(
+                            index=i, bar=curr,
+                            setup_name="Bull Spike Pullback Buy",
+                            direction=1, confidence=0.78,
+                            notes=f"Pullback buy {lookback} bars after {sp_end - sp_start + 1}-bar bull spike. PB depth {pullback_depth:.2f}.",
+                        ))
+                        last_fire = i
+                        break  # found a valid entry, stop looking
+            else:
+                # Pullback: current bar's high > prior bar's high (price bounced)
+                if curr.high > bars[i - 1].high:
+                    pullback_depth = curr.high - s_low
+                    if pullback_depth <= spike_size * 0.50:
+                        setups.append(Setup(
+                            index=i, bar=curr,
+                            setup_name="Bear Spike Pullback Sell",
+                            direction=-1, confidence=0.78,
+                            notes=f"Pullback sell {lookback} bars after {sp_end - sp_start + 1}-bar bear spike. PB depth {pullback_depth:.2f}.",
+                        ))
+                        last_fire = i
+                        break
+
     return setups
 
 
