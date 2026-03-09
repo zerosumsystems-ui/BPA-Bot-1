@@ -652,16 +652,23 @@ def classify_market_cycle(bars: list[Bar], ema: list[float]) -> str:
     if overlaps < 3:
         return "Micro Channel"
 
-    # Tight channel
-    above = sum(1 for i, b in enumerate(recent) if b.close > recent_ema[i])
-    if above >= 8 or above <= 2:
+    # Use EMA crosses to distinguish tight vs broad channels
+    # (Al Brooks: tight channel = price stays on one side of EMA, broad = frequent crosses)
+    lookback = bars[max(0, n-20):n]
+    lookback_ema = ema[max(0, n-20):n]
+    ema_crosses = 0
+    for i in range(1, len(lookback)):
+        curr_above = lookback[i].close > lookback_ema[i]
+        prev_above = lookback[i-1].close > lookback_ema[i-1]
+        if curr_above != prev_above:
+            ema_crosses += 1
+
+    if ema_crosses <= 1:
         return "Tight Channel (Small PB Trend)"
 
-    # Broad channel
-    total_range = max(b.high for b in recent) - min(b.low for b in recent)
-    net = recent[-1].close - recent[0].close
-    if total_range > 0 and abs(net) / total_range > 0.3:
-        if net > 0:
+    if ema_crosses <= 3:
+        # Broad channel — determine direction from EMA slope
+        if lookback_ema[-1] > lookback_ema[0]:
             return "Broad Bull Channel"
         return "Broad Bear Channel"
 
@@ -792,10 +799,10 @@ def filter_by_context(setups: list[Setup], day_type: str, market_cycle: str) -> 
             if any(k in setup_name for k in trend_keywords) and "Major" not in setup_name:
                 continue # Reject this setup (Major Trend Reversals are allowed to form in ranges)
                 
-        # RULE 3: Do not buy Highs / sell Lows in a Broad Trading Range
-        if "Broad Range" in market_cycle:
+        # RULE 3: Do not buy Highs / sell Lows in a Broad Channel
+        if "Broad" in market_cycle:
             if "Breakout" in setup_name and "Test" not in setup_name:
-                continue # Reject breakouts in ranges (they usually fail)
+                continue # Reject breakouts in broad channels (they usually fail)
                 
         filtered.append(s)
         
