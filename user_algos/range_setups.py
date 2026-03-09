@@ -33,20 +33,31 @@ def detect_bear_stairs(bars: List[Bar], ema: List[float]) -> List[Setup]:
                 ))
     return setups
 
-def _find_spike(bars: List[Bar], end_idx: int, min_bars: int = 3, body_ratio: float = 0.40):
+def _find_spike(bars: List[Bar], end_idx: int, min_bars: int = 5, body_ratio: float = 0.40):
     """
-    Scan backwards from end_idx to find the most recent spike.
+    Scan backwards from end_idx to find a microchannel spike.
+
+    A microchannel is the strongest form of spike:
+      Bull: every bar is a bull bar closing above midpoint AND
+            every bar's low >= prior bar's low (no pullback at all)
+      Bear: every bar is a bear bar closing below midpoint AND
+            every bar's high <= prior bar's high
+
+    On 1-min charts, 5+ bars of microchannel ≈ a strong 5-min spike bar.
     Returns (direction, start, end, high, low, avg_range) or None.
     """
     for j in range(end_idx, max(min_bars - 1, end_idx - 50) - 1, -1):
         if j < min_bars:
             break
 
-        # Bull spike
+        # Bull microchannel: scan backwards, each bar must be bull + higher low
         count = 0
-        for k in range(j, max(j - 8, -1), -1):
+        for k in range(j, max(j - 12, -1), -1):
             b = bars[k]
             if b.is_bull and b.close > b.midpoint and b.range > 0 and b.body / b.range >= body_ratio:
+                # First bar always counts; subsequent bars must have low >= prior bar's low
+                if count > 0 and b.low > bars[k + 1].low:
+                    break  # low dropped below prior bar — not a microchannel
                 count += 1
             else:
                 break
@@ -57,11 +68,13 @@ def _find_spike(bars: List[Bar], end_idx: int, min_bars: int = 3, body_ratio: fl
                     max(b.high for b in sl), min(b.low for b in sl),
                     sum(b.range for b in sl) / len(sl))
 
-        # Bear spike
+        # Bear microchannel: scan backwards, each bar must be bear + lower high
         count = 0
-        for k in range(j, max(j - 8, -1), -1):
+        for k in range(j, max(j - 12, -1), -1):
             b = bars[k]
             if b.is_bear and b.close < b.midpoint and b.range > 0 and b.body / b.range >= body_ratio:
+                if count > 0 and b.high < bars[k + 1].high:
+                    break  # high rose above prior bar — not a microchannel
                 count += 1
             else:
                 break
@@ -182,7 +195,7 @@ def detect_spike_buy_market(bars: List[Bar], ema: List[float]) -> List[Setup]:
     if len(bars) < 5:
         return setups
 
-    MIN_SPIKE = 3
+    MIN_SPIKE = 5
     BODY_RATIO = 0.40
     COOLDOWN = 5
 
@@ -237,7 +250,7 @@ def detect_spike_buy_pullback(bars: List[Bar], ema: List[float]) -> List[Setup]:
     if len(bars) < 6:
         return setups
 
-    MIN_SPIKE = 3
+    MIN_SPIKE = 5
     BODY_RATIO = 0.40
     COOLDOWN = 5
     MAX_PB_BARS = 5
