@@ -3972,11 +3972,231 @@ def render_review_trades():
     )
 
 
+def render_strategy_comparison():
+    """Compare 14 trade management strategies on the same signals."""
+    from compare_strategies import (
+        STRATEGIES, generate_base_trades, make_trade, compute_metrics,
+    )
+    from backtester import run_multi_day_backtest
+
+    st.caption("Run all setups through 14 different exit strategies on identical signals to find the optimal trade management.")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        sc_selection = st.selectbox("Ticker / Group", TICKER_OPTION_LABELS,
+                                    index=TICKER_OPTION_LABELS.index("Most Liquid"),
+                                    key="sc_selection")
+    with c2:
+        sc_days = st.number_input("Days", min_value=5, max_value=9999, value=120, key="sc_days")
+    with c3:
+        run_sc = st.button("Compare Strategies", key="sc_run", type="primary")
+
+    if not run_sc:
+        return
+
+    sc_ticker_list = TICKER_OPTIONS.get(sc_selection, [sc_selection])
+
+    source = _init_data_source_v2()
+    end = datetime.date.today()
+    calendar_days = int(sc_days * 1.45) + 1
+    start = end - datetime.timedelta(days=calendar_days)
+    start_str = start.strftime("%Y-%m-%d")
+    end_str = end.strftime("%Y-%m-%d")
+
+    # ── Phase 1: Fetch data ──
+    progress = st.progress(0, text="Fetching data from Databento...")
+    try:
+        bulk_df = source.get_bulk_chart_data(sc_ticker_list, start_str, end_str)
+    except Exception as e:
+        st.error(f"Databento fetch failed: {e}")
+        return
+
+    if bulk_df.empty:
+        st.error("No data returned")
+        return
+
+    fetched = {}
+    if "symbol" in bulk_df.columns:
+        for sym, group in bulk_df.groupby("symbol"):
+            fetched[sym] = group.drop(columns=["symbol", "BarNumber"], errors="ignore")
+
+    # ── Phase 2: Generate all trade signals ──
+    progress.progress(0.3, text="Generating trade signals...")
+    all_trade_infos = []
+    all_bars_map = {}
+
+    for ticker in sc_ticker_list:
+        full_df = fetched.get(ticker)
+        if full_df is None or full_df.empty:
+            continue
+        if isinstance(full_df.columns, pd.MultiIndex):
+            full_df.columns = full_df.columns.get_level_values(0)
+        full_df.index = pd.to_datetime(full_df.index)
+
+        for date, group in full_df.groupby(full_df.index.date):
+            if len(group) < 10:
+                continue
+            try:
+                result = generate_base_trades(group, ticker=ticker)
+                if not result or not result[0]:
+                    continue
+                trade_infos, bars, timestamps = result
+                key = f"{ticker}|{date}"
+                all_bars_map[key] = (bars, timestamps)
+                for info in trade_infos:
+                    info["_day_key"] = key
+                all_trade_infos.extend(trade_infos)
+            except Exception:
+                continue
+
+    total_signals = len(all_trade_infos)
+    if total_signals == 0:
+        st.warning("No trade signals generated.")
+        return
+
+    # ── Phase 3: Run all strategies ──
+    strategy_trades = {name: [] for name in STRATEGIES}
+    strat_names = list(STRATEGIES.keys())
+
+    for si, (strat_name, sim_fn) in enumerate(STRATEGIES.items()):
+        progress.progress(0.4 + 0.55 * (si / len(STRATEGIES)),
+                          text=f"Simulating {strat_name}...")
+        for info in all_trade_infos:
+            day_key = info["_day_key"]
+            bars, timestamps = all_bars_map[day_key]
+            trade = make_trade(info)
+            try:
+                trade = sim_fn(trade, bars, timestamps, 0.0)
+                if trade.exit_reason != "unfilled":
+                    strategy_trades[strat_name].append(trade)
+            except Exception:
+                continue
+
+    progress.progress(1.0, text="Done!")
+    progress.empty()
+
+    # ── Phase 4: Results ──
+    st.success(f"Done — **{total_signals:,} signals** across **{len(sc_ticker_list)} tickers**, **{sc_days} trading days**")
+
+    results = []
+    for name in STRATEGIES:
+        m = compute_metrics(strategy_trades[name])
+        m["name"] = name
+        results.append(m)
+
+    results.sort(key=lambda x: x["ev_trade"], reverse=True)
+
+    # Main comparison table
+    st.subheader("Strategy Comparison")
+    rows = []
+    for r in results:
+        rows.append({
+            "Strategy": r["name"],
+            "WR": f"{r['wr']:.1%}",
+            "Avg Win": f"${r['avg_win']:.2f}",
+            "Avg Loss": f"${r['avg_loss']:.2f}",
+            "R:R": f"{r['rr']:.2f}",
+            "Min WR": f"{r['min_wr']:.1%}",
+            "Edge": f"{r['edge']:+.1%}",
+            "EV/trade": f"${r['ev_trade']:+.3f}",
+            "EV(R)": f"{r['ev_r']:+.3f}",
+            "PF": f"{r['pf']:.2f}",
+            "Total P&L": f"${r['total_pnl']:+,.0f}",
+            "Sharpe": f"{r['sharpe']:.3f}",
+            "Max DD": f"${r['max_dd']:.0f}",
+            "Avg Bars": f"{r['avg_bars']:.1f}",
+        })
+
+    table_df = pd.DataFrame(rows)
+
+    # Style: highlight best row
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
+
+    # Winner callout
+    best = results[0]
+    st.markdown(f"""
+### Winner: **{best['name']}**
+- **Best EV/trade:** ${best['ev_trade']:+.3f}
+- **Best EV(R):** {best['ev_r']:+.3f}R per trade
+- **Edge:** {best['edge']:+.1%} above breakeven
+- **Profit Factor:** {best['pf']:.2f}
+- **Total P&L:** ${best['total_pnl']:+,.2f}
+- **Sharpe:** {best['sharpe']:.3f}
+""")
+
+    # Per-ticker breakdown for top 3
+    top3 = [r["name"] for r in results[:3]]
+    st.subheader("Top 3 — Per-Ticker Breakdown")
+
+    ticker_rows = []
+    for ticker in sc_ticker_list:
+        row = {"Ticker": ticker}
+        for sn in top3:
+            ticker_tds = [t for t in strategy_trades[sn] if t.ticker == ticker]
+            if not ticker_tds:
+                row[f"{sn} Trades"] = 0
+                row[f"{sn} WR"] = "—"
+                row[f"{sn} EV(R)"] = "—"
+                row[f"{sn} P&L"] = "—"
+            else:
+                tm = compute_metrics(ticker_tds)
+                row[f"{sn} Trades"] = tm["trades"]
+                row[f"{sn} WR"] = f"{tm['wr']:.0%}"
+                row[f"{sn} EV(R)"] = f"{tm['ev_r']:+.3f}"
+                row[f"{sn} P&L"] = f"${tm['total_pnl']:+,.0f}"
+        ticker_rows.append(row)
+
+    st.dataframe(pd.DataFrame(ticker_rows), use_container_width=True, hide_index=True)
+
+    # Exit reason breakdown
+    st.subheader("Exit Reason Breakdown — Top 3")
+    for sn in top3:
+        trades = strategy_trades[sn]
+        reasons = {}
+        for t in trades:
+            reasons[t.exit_reason] = reasons.get(t.exit_reason, 0) + 1
+        total = len(trades)
+        reason_rows = []
+        for reason, count in sorted(reasons.items(), key=lambda x: -x[1]):
+            pct = count / total * 100
+            reason_pnl = sum(t.pnl for t in trades if t.exit_reason == reason)
+            reason_rows.append({
+                "Reason": reason,
+                "Count": count,
+                "%": f"{pct:.1f}%",
+                "P&L": f"${reason_pnl:+,.2f}",
+            })
+        st.caption(f"**{sn}**")
+        st.dataframe(pd.DataFrame(reason_rows), use_container_width=True, hide_index=True)
+
+    # Equity curve comparison for top 3
+    st.subheader("Equity Curves — Top 3")
+    fig = go.Figure()
+    for sn in top3:
+        trades = strategy_trades[sn]
+        equity = [0.0]
+        for t in trades:
+            equity.append(equity[-1] + t.pnl)
+        fig.add_trace(go.Scatter(
+            x=list(range(len(equity))),
+            y=equity,
+            mode="lines",
+            name=sn,
+        ))
+    fig.update_layout(
+        xaxis_title="Trade #",
+        yaxis_title="Cumulative P&L ($)",
+        height=400,
+        margin=dict(l=40, r=20, t=30, b=40),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def main():
     render_sidebar()
 
-    tab_train, tab_backtest, tab_daily, tab_review, tab_library = st.tabs(
-        ["Train", "5m Backtest", "Daily Backtest", "Review", "Library"]
+    tab_train, tab_backtest, tab_daily, tab_review, tab_compare, tab_library = st.tabs(
+        ["Train", "5m Backtest", "Daily Backtest", "Review", "Strategy Compare", "Library"]
     )
 
     with tab_train:
@@ -3990,6 +4210,9 @@ def main():
 
     with tab_review:
         render_review_trades()
+
+    with tab_compare:
+        render_strategy_comparison()
 
     with tab_library:
         render_library()
