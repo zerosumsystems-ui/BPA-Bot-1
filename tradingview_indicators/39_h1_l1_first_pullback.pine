@@ -1,0 +1,150 @@
+//@version=6
+indicator("BPA: H1/L1 First Pullback", overlay=true, max_labels_count=500)
+
+// ─── INPUTS ────────────────────────────────────────────────────────────────────
+emaPeriod    = input.int(20, "EMA Period", minval=5, maxval=50)
+trendBars    = input.int(7, "Min Bars Above/Below EMA (of last 10)", minval=5, maxval=10)
+minGap       = input.int(5, "Min Bars Between Signals", minval=2, maxval=20)
+maxPullbacks = input.int(2, "Max Recent Pullbacks", minval=1, maxval=5)
+showH1       = input.bool(true, "Show H1 Long Signals")
+showL1       = input.bool(true, "Show L1 Short Signals")
+showEMA      = input.bool(true, "Show EMA Line")
+showEntry    = input.bool(true, "Show Entry/Stop Lines")
+colorBull    = input.color(color.new(#39ff14, 0), "H1 Long Color")
+colorBear    = input.color(color.new(#ff2e63, 0), "L1 Short Color")
+
+// ─── EMA ───────────────────────────────────────────────────────────────────────
+emaVal = ta.ema(close, emaPeriod)
+plot(showEMA ? emaVal : na, "EMA", color=color.new(#FFA726, 30), linewidth=2)
+
+// ─── TREND CONTEXT ─────────────────────────────────────────────────────────────
+// Count bars above/below EMA in last 10 bars
+aboveCount = 0
+belowCount = 0
+for j = 1 to 10
+    if close[j] > emaVal[j]
+        aboveCount += 1
+    if close[j] < emaVal[j]
+        belowCount += 1
+
+isBullTrend = aboveCount >= trendBars
+isBearTrend = belowCount >= trendBars
+
+// ─── PULLBACK DETECTION ────────────────────────────────────────────────────────
+// Pullback for H1: prev bar is bear or made a lower low
+h1Pullback = close[1] < open[1] or low[1] < low[2]
+
+// At least 2 bull bars in bars [2], [3], [4] before the pullback
+bullBefore = 0
+if close[2] > open[2]
+    bullBefore += 1
+if close[3] > open[3]
+    bullBefore += 1
+if close[4] > open[4]
+    bullBefore += 1
+
+// Pullback for L1: prev bar is bull or made a higher high
+l1Pullback = close[1] > open[1] or high[1] > high[2]
+
+// At least 2 bear bars before
+bearBefore = 0
+if close[2] < open[2]
+    bearBefore += 1
+if close[3] < open[3]
+    bearBefore += 1
+if close[4] < open[4]
+    bearBefore += 1
+
+// ─── RECENT PULLBACK COUNT (freshness filter) ─────────────────────────────────
+recentBullPBs = 0
+for j = 1 to 8
+    if close[j] < open[j] and close[j] > emaVal[j]
+        recentBullPBs += 1
+
+recentBearPBs = 0
+for j = 1 to 8
+    if close[j] > open[j] and close[j] < emaVal[j]
+        recentBearPBs += 1
+
+// ─── SIGNAL DETECTION ──────────────────────────────────────────────────────────
+// H1 Long: bull trend + pullback + bull break bar above prev high
+h1Raw = isBullTrend and h1Pullback and bullBefore >= 2 and high > high[1] and close > open and recentBullPBs <= maxPullbacks
+
+// L1 Short: bear trend + pullback + bear break bar below prev low
+l1Raw = isBearTrend and l1Pullback and bearBefore >= 2 and low < low[1] and close < open and recentBearPBs <= maxPullbacks
+
+// ─── COOLDOWN (min bars between signals) ───────────────────────────────────────
+var int lastH1Bar = -999
+var int lastL1Bar = -999
+
+h1Signal = h1Raw and (bar_index - lastH1Bar) >= minGap
+l1Signal = l1Raw and (bar_index - lastL1Bar) >= minGap
+
+if h1Signal
+    lastH1Bar := bar_index
+if l1Signal
+    lastL1Bar := bar_index
+
+// ─── ENTRY & STOP LEVELS ──────────────────────────────────────────────────────
+h1Entry = high[1] + syminfo.mintick
+h1Stop  = math.min(low, low[1], low[2]) - syminfo.mintick
+
+l1Entry = low[1] - syminfo.mintick
+l1Stop  = math.max(high, high[1], high[2]) + syminfo.mintick
+
+// ─── VISUALIZATION ─────────────────────────────────────────────────────────────
+// Bar coloring
+barcolor(h1Signal and showH1 ? colorBull : l1Signal and showL1 ? colorBear : na)
+
+// Labels
+if h1Signal and showH1
+    h1Risk = h1Entry - h1Stop
+    label.new(bar_index, low, "H1\nLONG", style=label.style_label_up,
+         color=color.new(colorBull, 80), textcolor=colorBull, size=size.small,
+         tooltip="Entry: " + str.tostring(h1Entry, "#.##") + "\nStop: " + str.tostring(h1Stop, "#.##") + "\nRisk: " + str.tostring(h1Risk, "#.##"))
+
+if l1Signal and showL1
+    l1Risk = l1Stop - l1Entry
+    label.new(bar_index, high, "L1\nSHORT", style=label.style_label_down,
+         color=color.new(colorBear, 80), textcolor=colorBear, size=size.small,
+         tooltip="Entry: " + str.tostring(l1Entry, "#.##") + "\nStop: " + str.tostring(l1Stop, "#.##") + "\nRisk: " + str.tostring(l1Risk, "#.##"))
+
+// Entry/Stop lines (3-bar duration)
+if h1Signal and showH1 and showEntry
+    line.new(bar_index, h1Entry, bar_index + 3, h1Entry, color=colorBull, style=line.style_dashed, width=1)
+    line.new(bar_index, h1Stop, bar_index + 3, h1Stop, color=color.new(colorBear, 50), style=line.style_dotted, width=1)
+
+if l1Signal and showL1 and showEntry
+    line.new(bar_index, l1Entry, bar_index + 3, l1Entry, color=colorBear, style=line.style_dashed, width=1)
+    line.new(bar_index, l1Stop, bar_index + 3, l1Stop, color=color.new(colorBull, 50), style=line.style_dotted, width=1)
+
+// ─── EMA TREND BACKGROUND ─────────────────────────────────────────────────────
+bgcolor(isBullTrend ? color.new(colorBull, 95) : isBearTrend ? color.new(colorBear, 95) : na)
+
+// ─── INFO TABLE ────────────────────────────────────────────────────────────────
+var table infoTable = table.new(position.top_right, 2, 5, bgcolor=color.new(#1a1a2e, 10), border_width=1)
+
+if barstate.islast
+    trendStr = isBullTrend ? "BULL (" + str.tostring(aboveCount) + "/10)" : isBearTrend ? "BEAR (" + str.tostring(belowCount) + "/10)" : "NEUTRAL"
+    trendCol = isBullTrend ? colorBull : isBearTrend ? colorBear : color.gray
+
+    table.cell(infoTable, 0, 0, "H1/L1", text_color=color.white, text_size=size.small, bgcolor=color.new(#1a1a2e, 0))
+    table.cell(infoTable, 1, 0, "First Pullback", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+
+    table.cell(infoTable, 0, 1, "Trend", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+    table.cell(infoTable, 1, 1, trendStr, text_color=trendCol, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+
+    table.cell(infoTable, 0, 2, "EMA", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+    table.cell(infoTable, 1, 2, str.tostring(emaVal, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+
+    table.cell(infoTable, 0, 3, "Price vs EMA", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+    pctFromEma = (close - emaVal) / emaVal * 100
+    table.cell(infoTable, 1, 3, str.tostring(pctFromEma, "#.##") + "%", text_color=pctFromEma > 0 ? colorBull : colorBear, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+
+    table.cell(infoTable, 0, 4, "7yr Stats", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+    table.cell(infoTable, 1, 4, "H1: 70.6% WR PF 2.45\nL1: 61.5% WR PF 1.62", text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1a1a2e, 0))
+
+// ─── ALERTS ────────────────────────────────────────────────────────────────────
+alertcondition(h1Signal, "H1 Long — First Pullback Buy", "H1 Long detected: First pullback buy in bull trend above EMA")
+alertcondition(l1Signal, "L1 Short — First Pullback Sell", "L1 Short detected: First pullback sell in bear trend below EMA")
+alertcondition(h1Signal or l1Signal, "H1 or L1 Signal", "First pullback signal detected")
